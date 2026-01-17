@@ -4,10 +4,13 @@ import android.nfc.NfcAdapter
 import android.nfc.Tag
 import android.nfc.tech.MifareClassic
 import android.os.Bundle
+import android.content.Intent
 import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import android.provider.Settings
+import android.speech.tts.TextToSpeech
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -24,13 +27,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -41,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
@@ -146,10 +151,18 @@ class MainActivity : ComponentActivity() {
     private var nfcAdapter: NfcAdapter? = null
     private var uiState by mutableStateOf(NfcUiState(status = "正在初始化 NFC..."))
     private var filamentDbHelper: FilamentDbHelper? = null
+    private var voiceEnabled by mutableStateOf(true)
+    private var tts: TextToSpeech? = null
+    private var ttsReady by mutableStateOf(false)
+    private var ttsLanguageReady by mutableStateOf(false)
+    private var lastSpokenKey: String? = null
 
     private val readerCallback = NfcAdapter.ReaderCallback { tag ->
         val result = readTag(tag)
-        runOnUiThread { uiState = result }
+        runOnUiThread {
+            uiState = result
+            maybeSpeakResult(result)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -158,12 +171,24 @@ class MainActivity : ComponentActivity() {
         nfcAdapter = NfcAdapter.getDefaultAdapter(this)
         filamentDbHelper = FilamentDbHelper(this)
         filamentDbHelper?.let { syncFilamentDatabase(this, it) }
+        initTts()
         uiState = NfcUiState(status = initialStatus())
         setContent {
             BambuRfidReaderTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     NfcScreen(
                         state = uiState,
+                        voiceEnabled = voiceEnabled,
+                        ttsReady = ttsReady,
+                        ttsLanguageReady = ttsLanguageReady,
+                        onVoiceEnabledChange = {
+                            voiceEnabled = it
+                            if (!it) {
+                                tts?.stop()
+                            } else if (!ttsReady) {
+                                initTts()
+                            }
+                        },
                         modifier = Modifier.padding(innerPadding)
                     )
                 }
@@ -173,6 +198,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (voiceEnabled && !ttsReady) {
+            initTts()
+        }
         val adapter = nfcAdapter
         if (adapter == null) {
             uiState = uiState.copy(status = "此设备不支持 NFC")
@@ -199,6 +227,11 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         filamentDbHelper?.close()
+        tts?.stop()
+        tts?.shutdown()
+        tts = null
+        ttsReady = false
+        ttsLanguageReady = false
     }
 
     private fun initialStatus(): String {
@@ -208,6 +241,117 @@ class MainActivity : ComponentActivity() {
             !adapter.isEnabled -> "NFC 已关闭，请开启后贴卡"
             else -> "请贴近 RFID 标签"
         }
+    }
+
+    private fun initTts() {
+        tts?.stop()
+        tts?.shutdown()
+        tts = null
+        ttsReady = false
+        ttsLanguageReady = false
+        tts = TextToSpeech(applicationContext) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                ttsReady = true
+                val locales = listOf(
+                    Locale.SIMPLIFIED_CHINESE,
+                    Locale.CHINESE,
+                    Locale("zh", "CN"),
+                    Locale.getDefault()
+                )
+                for (locale in locales) {
+                    val result = tts?.setLanguage(locale)
+                    if (result != TextToSpeech.LANG_MISSING_DATA &&
+                        result != TextToSpeech.LANG_NOT_SUPPORTED
+                    ) {
+                        ttsLanguageReady = true
+                        Log.d(LOG_TAG, "语音播报语言已设置: $locale")
+                        break
+                    }
+                }
+                if (!ttsLanguageReady) {
+                    Log.d(LOG_TAG, "语音播报语言不可用，请安装中文语音包")
+                }
+                Log.d(
+                    LOG_TAG,
+                    "语音播报初始化完成，是否可用: $ttsReady，语言可用: $ttsLanguageReady"
+                )
+            } else {
+                ttsReady = false
+                ttsLanguageReady = false
+                Log.d(LOG_TAG, "语音播报初始化失败")
+            }
+        }
+    }
+
+    private fun maybeSpeakResult(state: NfcUiState) {
+        if (!voiceEnabled) {
+            return
+        }
+        if (!ttsReady) {
+            return
+        }
+        val type = state.displayType.trim()
+        val colorName = state.displayColorName.trim()
+        if (type.isBlank() && colorName.isBlank()) {
+            return
+        }
+        val key = listOf(
+            state.uidHex,
+            type,
+            colorName,
+            state.displayColorCode,
+            state.displayColorType,
+            state.displayColors.joinToString(separator = ",")
+        ).joinToString(separator = "|")
+        if (key == lastSpokenKey) {
+            return
+        }
+        lastSpokenKey = key
+        val parts = ArrayList<String>()
+        if (type.isNotBlank()) {
+            val speechType = buildSpeechMaterialName(type)
+            parts.add("耗材类型 $speechType")
+        }
+        if (colorName.isNotBlank()) {
+            parts.add("颜色 $colorName")
+        }
+        val message = parts.joinToString(separator = "，")
+        if (message.isNotBlank()) {
+            Log.d(LOG_TAG, "语音播报: $message")
+            tts?.speak(message, TextToSpeech.QUEUE_FLUSH, null, "scan_result")
+        }
+    }
+
+    private fun buildSpeechMaterialName(raw: String): String {
+        val words = raw.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+        if (words.isEmpty()) {
+            return ""
+        }
+        return words.joinToString("、") { word ->
+            if (isAllUppercaseWord(word)) {
+                val letters = word.filter { it.isLetterOrDigit() }
+                if (letters.isBlank()) {
+                    word
+                } else {
+                    letters.map { it.lowercaseChar().toString() }.joinToString(" ")
+                }
+            } else {
+                word
+            }
+        }
+    }
+
+    private fun isAllUppercaseWord(word: String): Boolean {
+        var hasLetter = false
+        for (ch in word) {
+            if (ch in 'a'..'z') {
+                return false
+            }
+            if (ch in 'A'..'Z') {
+                hasLetter = true
+            }
+        }
+        return hasLetter
     }
 
     private fun readTag(tag: Tag): NfcUiState {
@@ -379,7 +523,7 @@ class MainActivity : ComponentActivity() {
 private fun BoostFooter(modifier: Modifier = Modifier) {
     val uriHandler = LocalUriHandler.current
     val boostLink =
-        "bambulab://bbl/design/model/detail?design_id=2019552&instance_id=2251734&appSharePlatform=copy"
+        "bambulab://bbl/design/model/detail?design_id=2020787&instance_id=2253290&appSharePlatform=copy"
     val linkColor = MaterialTheme.colorScheme.primary
     val boostText = buildAnnotatedString {
         pushStringAnnotation(tag = "URL", annotation = boostLink)
@@ -408,7 +552,15 @@ private fun BoostFooter(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun NfcScreen(state: NfcUiState, modifier: Modifier = Modifier) {
+private fun NfcScreen(
+    state: NfcUiState,
+    voiceEnabled: Boolean,
+    ttsReady: Boolean,
+    ttsLanguageReady: Boolean,
+    onVoiceEnabledChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -447,6 +599,56 @@ private fun NfcScreen(state: NfcUiState, modifier: Modifier = Modifier) {
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            }
+            GlassCard(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val voiceStatus = when {
+                        !ttsReady -> "语音引擎不可用"
+                        !ttsLanguageReady -> "引擎可用，中文语音包未安装"
+                        voiceEnabled -> "已开启"
+                        else -> "已关闭"
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "语音播报",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (ttsReady && ttsLanguageReady) {
+                            Text(
+                                text = voiceStatus,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            Text(
+                                text = "点此打开语音设置",
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = MaterialTheme.colorScheme.primary,
+                                    textDecoration = TextDecoration.Underline
+                                ),
+                                modifier = Modifier.clickable {
+                                    val opened = openTtsSettings(context)
+                                    if (!opened) {
+                                        Log.d(LOG_TAG, "无法打开语音设置页面")
+                                    }
+                                }
+                            )
+                            Text(
+                                text = voiceStatus,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Switch(checked = voiceEnabled, onCheckedChange = onVoiceEnabledChange)
                 }
             }
 
@@ -565,6 +767,29 @@ private fun InfoLine(
     }
 }
 
+private fun openTtsSettings(context: Context): Boolean {
+    val intents = listOf(
+        Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA),
+        Intent("android.speech.tts.engine.TTS_SETTINGS"),
+        Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS),
+        Intent(Settings.ACTION_SETTINGS)
+    )
+    val packageManager = context.packageManager
+    for (intent in intents) {
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (intent.resolveActivity(packageManager) != null) {
+            return try {
+                context.startActivity(intent)
+                true
+            } catch (e: Exception) {
+                Log.d(LOG_TAG, "打开语音设置失败: ${e.message}")
+                false
+            }
+        }
+    }
+    return false
+}
+
 @Composable
 private fun ColorSwatch(
     colorValues: List<String>,
@@ -666,7 +891,11 @@ private fun PreviewNfcScreen() {
                     ParsedField(label = "喷嘴最高温度", value = "220 ℃"),
                     ParsedField(label = "喷嘴最低温度", value = "190 ℃")
                 )
-            )
+            ),
+            voiceEnabled = true,
+            ttsReady = true,
+            ttsLanguageReady = true,
+            onVoiceEnabledChange = {}
         )
     }
 }
