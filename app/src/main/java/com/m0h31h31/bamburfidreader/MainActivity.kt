@@ -29,9 +29,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -39,6 +44,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -74,7 +80,7 @@ private const val SECTOR_COUNT = 16
 private const val LOG_TAG = "BambuRfidReader"
 private const val FILAMENT_JSON_NAME = "filaments_color_codes.json"
 private const val FILAMENT_DB_NAME = "filaments.db"
-private const val FILAMENT_DB_VERSION = 4
+private const val FILAMENT_DB_VERSION = 5
 private const val FILAMENT_TABLE = "filaments"
 private const val FILAMENT_META_TABLE = "meta"
 private const val FILAMENT_META_KEY_LAST_MODIFIED = "filaments_last_modified"
@@ -151,6 +157,21 @@ data class ParsedBlockData(
     val colorValues: List<String>
 )
 
+data class InventoryItem(
+    val trayUid: String,
+    val materialType: String,
+    val colorName: String,
+    val colorCode: String,
+    val colorType: String,
+    val colorValues: List<String>,
+    val remainingPercent: Int
+)
+
+enum class AppScreen {
+    Reader,
+    Inventory
+}
+
 class MainActivity : ComponentActivity() {
     private var nfcAdapter: NfcAdapter? = null
     private var uiState by mutableStateOf(NfcUiState(status = "正在等待NFC..."))
@@ -160,6 +181,7 @@ class MainActivity : ComponentActivity() {
     private var ttsReady by mutableStateOf(false)
     private var ttsLanguageReady by mutableStateOf(false)
     private var lastSpokenKey: String? = null
+    private var currentScreen by mutableStateOf(AppScreen.Reader)
 
     private val readerCallback = NfcAdapter.ReaderCallback { tag ->
         val result = readTag(tag)
@@ -181,25 +203,41 @@ class MainActivity : ComponentActivity() {
         uiState = NfcUiState(status = initialStatus())
         setContent {
             BambuRfidReaderTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    NfcScreen(
-                        state = uiState,
-                        voiceEnabled = voiceEnabled,
-                        ttsReady = ttsReady,
-                        ttsLanguageReady = ttsLanguageReady,
-                        onVoiceEnabledChange = {
-                            voiceEnabled = it
-                            if (!it) {
-                                tts?.stop()
-                            } else if (!ttsReady) {
-                                initTts()
-                            }
-                        },
-                        onRemainingChange = { trayUid, percent ->
-                            updateTrayRemaining(trayUid, percent)
-                        },
-                        modifier = Modifier.padding(innerPadding)
-                    )
+                when (currentScreen) {
+                    AppScreen.Reader -> {
+                        Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                            NfcScreen(
+                                state = uiState,
+                                voiceEnabled = voiceEnabled,
+                                ttsReady = ttsReady,
+                                ttsLanguageReady = ttsLanguageReady,
+                                onVoiceEnabledChange = {
+                                    voiceEnabled = it
+                                    if (!it) {
+                                        tts?.stop()
+                                    } else if (!ttsReady) {
+                                        initTts()
+                                    }
+                                },
+                                onRemainingChange = { trayUid, percent ->
+                                    updateTrayRemaining(trayUid, percent)
+                                },
+                                onInventoryClick = {
+                                    currentScreen = AppScreen.Inventory
+                                },
+                                modifier = Modifier.padding(innerPadding)
+                            )
+                        }
+                    }
+
+                    AppScreen.Inventory -> {
+                        InventoryScreen(
+                            dbHelper = filamentDbHelper,
+                            onBack = { currentScreen = AppScreen.Reader },
+                            onBackupDatabase = { backupDatabase() },
+                            onImportDatabase = { importDatabase() }
+                        )
+                    }
                 }
             }
         }
@@ -266,6 +304,46 @@ class MainActivity : ComponentActivity() {
             uiState = uiState.copy(remainingPercent = updatedPercent)
         }
         Log.d(LOG_TAG, "更新耗材余量: $trayUidHex -> $updatedPercent%")
+    }
+
+    private fun backupDatabase(): String {
+        val dbFile = getDatabasePath(FILAMENT_DB_NAME)
+        if (!dbFile.exists()) {
+            return "数据库文件不存在"
+        }
+        val externalDir = getExternalFilesDir(null)
+        if (externalDir == null) {
+            return "无法访问存储目录"
+        }
+        val backupFile = File(externalDir, "filaments_backup.db")
+        return try {
+            dbFile.copyTo(backupFile, overwrite = true)
+            "数据库备份成功"
+        } catch (e: Exception) {
+            Log.d(LOG_TAG, "数据库备份失败: ${e.message}")
+            "数据库备份失败"
+        }
+    }
+
+    private fun importDatabase(): String {
+        val externalDir = getExternalFilesDir(null)
+        if (externalDir == null) {
+            return "无法访问存储目录"
+        }
+        val backupFile = File(externalDir, "filaments_backup.db")
+        if (!backupFile.exists()) {
+            return "未找到备份文件"
+        }
+        val dbFile = getDatabasePath(FILAMENT_DB_NAME)
+        return try {
+            filamentDbHelper?.close()
+            backupFile.copyTo(dbFile, overwrite = true)
+            filamentDbHelper?.writableDatabase
+            "数据库导入成功"
+        } catch (e: Exception) {
+            Log.d(LOG_TAG, "数据库导入失败: ${e.message}")
+            "数据库导入失败"
+        }
     }
 
     private fun initTts() {
@@ -556,6 +634,23 @@ class MainActivity : ComponentActivity() {
                     )
                 }"
             )
+            if (trayUidHex.isNotBlank()) {
+                val dbHelper = filamentDbHelper
+                val db = dbHelper?.writableDatabase
+                if (db != null) {
+                    dbHelper.upsertTrayInventory(
+                        db,
+                        trayUidHex,
+                        remainingPercent,
+                        parsedBlockData.materialId,
+                        displayData.type,
+                        displayData.colorName,
+                        displayData.colorCode,
+                        displayData.colorType,
+                        displayData.colorValues
+                    )
+                }
+            }
             val status = when {
                 errors.isEmpty() -> "读取成功"
                 blockHexes.any { it.isNotBlank() } -> "部分读取成功"
@@ -626,6 +721,7 @@ private fun NfcScreen(
     ttsLanguageReady: Boolean,
     onVoiceEnabledChange: (Boolean) -> Unit,
     onRemainingChange: (String, Int) -> Unit,
+    onInventoryClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -641,7 +737,19 @@ private fun NfcScreen(
                     .padding(bottom = 56.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(text = "Bambu RFID 读取器", style = MaterialTheme.typography.titleLarge)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Bambu RFID 读取器",
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = onInventoryClick) {
+                        Text(text = "库存")
+                    }
+                }
                 if (state.status.isNotBlank()) {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Row(
@@ -722,8 +830,17 @@ private fun NfcScreen(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+
+
+                            ColorSwatch(
+                                colorValues = state.displayColors,
+                                colorType = state.displayColorType,
+                                modifier = Modifier.size(120.dp)
+                            )
+
                             Column(
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.weight(1f)
+                                    .padding(start = 16.dp),
 //                                verticalArrangement = Arrangement.spacedBy(1.dp)
                             ) {
                                 Text(
@@ -758,11 +875,6 @@ private fun NfcScreen(
                                 )
                             }
 
-                            ColorSwatch(
-                                colorValues = state.displayColors,
-                                colorType = state.displayColorType,
-                                modifier = Modifier.size(120.dp)
-                            )
                         }
 
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -847,6 +959,174 @@ private fun NfcScreen(
                     .align(Alignment.BottomCenter)
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             )
+        }
+    }
+}
+
+@Composable
+private fun InventoryScreen(
+    dbHelper: FilamentDbHelper?,
+    onBack: () -> Unit,
+    onBackupDatabase: () -> String,
+    onImportDatabase: () -> String,
+    modifier: Modifier = Modifier
+) {
+    var query by remember { mutableStateOf("") }
+    var items by remember { mutableStateOf<List<InventoryItem>>(emptyList()) }
+    var message by remember { mutableStateOf("") }
+    var refreshKey by remember { mutableStateOf(0) }
+
+    LaunchedEffect(dbHelper, query, refreshKey) {
+        val db = dbHelper?.readableDatabase
+        items = if (db != null) {
+            dbHelper.queryInventory(db, query)
+        } else {
+            emptyList()
+        }
+    }
+
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        bottomBar = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (message.isNotBlank()) {
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Button(
+                        onClick = { message = onBackupDatabase() },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(text = "备份数据库")
+                    }
+                    Button(
+                        onClick = {
+                            message = onImportDatabase()
+                            refreshKey += 1
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(text = "导入数据库")
+                    }
+                }
+            }
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "耗材库存",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = onBack) {
+                    Text(text = "返回")
+                }
+            }
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = { Text(text = "搜索任意字段") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            if (items.isEmpty()) {
+                Text(
+                    text = "暂无库存数据",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(items, key = { it.trayUid }) { item ->
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Column(
+                                modifier = Modifier.padding(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    ColorSwatch(
+                                        colorValues = item.colorValues,
+                                        colorType = item.colorType,
+                                        modifier = Modifier.size(36.dp)
+                                    )
+                                    Column(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .padding(start = 8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        Text(
+                                            text = item.materialType.ifBlank { "未知耗材" },
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = item.colorName.ifBlank { "未知颜色" },
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            Text(
+                                                text = if (item.colorCode.isNotBlank()) {
+                                                    "色号 ${item.colorCode}"
+                                                } else {
+                                                    "色号 未知"
+                                                },
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                    LinearProgressIndicator(
+                                        progress = { item.remainingPercent / 100f },
+                                        modifier = Modifier
+                                            .weight(0.6f)
+                                            .height(6.dp)
+                                            .padding(end = 8.dp)
+                                            .clip(RoundedCornerShape(4.dp))
+                                    )
+                                    Text(
+                                        text = "${item.remainingPercent}%",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -974,7 +1254,8 @@ private fun PreviewNfcScreen() {
             ttsReady = true,
             ttsLanguageReady = true,
             onVoiceEnabledChange = {},
-            onRemainingChange = { _, _ -> }
+            onRemainingChange = { _, _ -> },
+            onInventoryClick = {}
         )
     }
 }
@@ -1624,18 +1905,41 @@ private class FilamentDbHelper(context: Context) :
             """
             CREATE TABLE IF NOT EXISTS "$TRAY_UID_TABLE" (
                 tray_uid TEXT PRIMARY KEY,
-                remaining_percent INTEGER NOT NULL
+                remaining_percent INTEGER NOT NULL,
+                material_id TEXT,
+                material_type TEXT,
+                color_name TEXT,
+                color_code TEXT,
+                color_type TEXT,
+                color_values TEXT
             )
             """.trimIndent()
         )
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        if (oldVersion != newVersion) {
+        if (oldVersion < 4) {
             db.execSQL("DROP TABLE IF EXISTS $FILAMENT_TABLE")
             db.execSQL("DROP TABLE IF EXISTS $FILAMENT_META_TABLE")
             db.execSQL("DROP TABLE IF EXISTS \"$TRAY_UID_TABLE\"")
             onCreate(db)
+            return
+        }
+        if (oldVersion < 5) {
+            addTrayColumn(db, "material_id", "TEXT")
+            addTrayColumn(db, "material_type", "TEXT")
+            addTrayColumn(db, "color_name", "TEXT")
+            addTrayColumn(db, "color_code", "TEXT")
+            addTrayColumn(db, "color_type", "TEXT")
+            addTrayColumn(db, "color_values", "TEXT")
+        }
+    }
+
+    private fun addTrayColumn(db: SQLiteDatabase, column: String, type: String) {
+        try {
+            db.execSQL("ALTER TABLE \"$TRAY_UID_TABLE\" ADD COLUMN $column $type")
+        } catch (_: Exception) {
+            // Ignore duplicate column errors.
         }
     }
 
@@ -1683,14 +1987,112 @@ private class FilamentDbHelper(context: Context) :
 
     fun upsertTrayRemainingPercent(db: SQLiteDatabase, trayUid: String, percent: Int) {
         val values = ContentValues()
-        values.put("tray_uid", trayUid)
         values.put("remaining_percent", percent)
+        val updated = db.update(
+            TRAY_UID_TABLE,
+            values,
+            "tray_uid = ?",
+            arrayOf(trayUid)
+        )
+        if (updated == 0) {
+            values.put("tray_uid", trayUid)
+            db.insertWithOnConflict(
+                TRAY_UID_TABLE,
+                null,
+                values,
+                SQLiteDatabase.CONFLICT_IGNORE
+            )
+        }
+    }
+
+    fun upsertTrayInventory(
+        db: SQLiteDatabase,
+        trayUid: String,
+        remainingPercent: Int,
+        materialId: String,
+        materialType: String,
+        colorName: String,
+        colorCode: String,
+        colorType: String,
+        colorValues: List<String>
+    ) {
+        val values = ContentValues()
+        values.put("tray_uid", trayUid)
+        values.put("remaining_percent", remainingPercent)
+        values.put("material_id", materialId)
+        values.put("material_type", materialType)
+        values.put("color_name", colorName)
+        values.put("color_code", colorCode)
+        values.put("color_type", colorType)
+        values.put("color_values", colorValues.joinToString(separator = ","))
         db.insertWithOnConflict(
             TRAY_UID_TABLE,
             null,
             values,
             SQLiteDatabase.CONFLICT_REPLACE
         )
+    }
+
+    fun queryInventory(db: SQLiteDatabase, keyword: String): List<InventoryItem> {
+        val columns = arrayOf(
+            "tray_uid",
+            "material_type",
+            "color_name",
+            "color_code",
+            "color_type",
+            "color_values",
+            "remaining_percent"
+        )
+        val trimmed = keyword.trim()
+        val selection: String?
+        val selectionArgs: Array<String>?
+        if (trimmed.isBlank()) {
+            selection = null
+            selectionArgs = null
+        } else {
+            selection = """
+                tray_uid LIKE ? OR
+                material_id LIKE ? OR
+                material_type LIKE ? OR
+                color_name LIKE ? OR
+                color_code LIKE ? OR
+                color_type LIKE ? OR
+                color_values LIKE ? OR
+                CAST(remaining_percent AS TEXT) LIKE ?
+            """.trimIndent()
+            val pattern = "%$trimmed%"
+            selectionArgs = Array(8) { pattern }
+        }
+        val cursor = db.query(
+            TRAY_UID_TABLE,
+            columns,
+            selection,
+            selectionArgs,
+            null,
+            null,
+            "tray_uid ASC"
+        )
+        cursor.use {
+            val results = ArrayList<InventoryItem>()
+            while (it.moveToNext()) {
+                val colorValues = it.getString(5).orEmpty()
+                    .split(",")
+                    .map { value -> value.trim() }
+                    .filter { value -> value.isNotBlank() }
+                results.add(
+                    InventoryItem(
+                        trayUid = it.getString(0).orEmpty(),
+                        materialType = it.getString(1).orEmpty(),
+                        colorName = it.getString(2).orEmpty(),
+                        colorCode = it.getString(3).orEmpty(),
+                        colorType = it.getString(4).orEmpty(),
+                        colorValues = colorValues,
+                        remainingPercent = it.getInt(6)
+                    )
+                )
+            }
+            return results
+        }
     }
 }
 
