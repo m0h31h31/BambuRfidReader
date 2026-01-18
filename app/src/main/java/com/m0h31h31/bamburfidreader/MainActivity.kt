@@ -24,14 +24,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.ClickableText
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,13 +43,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.m0h31h31.bamburfidreader.ui.theme.BambuRfidReaderTheme
 import java.io.ByteArrayOutputStream
 import java.io.IOException
@@ -380,176 +374,138 @@ private fun BoostFooter(modifier: Modifier = Modifier) {
     val uriHandler = LocalUriHandler.current
     val boostLink =
         "bambulab://bbl/design/model/detail?design_id=2019552&instance_id=2251734&appSharePlatform=copy"
-    val linkColor = MaterialTheme.colorScheme.primary
-    val boostText = buildAnnotatedString {
-        pushStringAnnotation(tag = "URL", annotation = boostLink)
-        withStyle(
-            style = SpanStyle(
-                color = linkColor,
-                fontWeight = FontWeight.Bold,
-                fontSize = 18.sp
-            )
-        ) {
-            append("打开 Bambu 给作者助力吧")
-        }
-        pop()
-    }
-    ClickableText(
-        text = boostText,
-        style = MaterialTheme.typography.bodySmall.copy(
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        ),
+    TextButton(
+        onClick = { uriHandler.openUri(boostLink) },
         modifier = modifier
-    ) { offset ->
-        boostText.getStringAnnotations(tag = "URL", start = offset, end = offset)
-            .firstOrNull()
-            ?.let { uriHandler.openUri(it.item) }
+    ) {
+        Text(text = "助力：打开 Bambu APP")
     }
 }
 
 @Composable
 private fun NfcScreen(state: NfcUiState, modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(
-                        Color(0xFFFFFFFF),
-                        Color(0xFFF7FAFF),
-                        Color(0xFFEFF4FF)
-                    )
-                )
-            )
+    Surface(
+        modifier = modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(18.dp)
-                .padding(bottom = 52.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Text(text = "Bambu RFID Reader", style = MaterialTheme.typography.headlineSmall)
-            if (state.status.isNotBlank()) {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(Color.White.copy(alpha = 0.7f))
-                        .border(
-                            1.dp,
-                            Color.White.copy(alpha = 0.45f),
-                            RoundedCornerShape(999.dp)
-                        )
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Text(
-                        text = state.status,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            GlassCard(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(32.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(5.dp)
-                    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+                    .padding(bottom = 56.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(text = "Bambu RFID Reader", style = MaterialTheme.typography.titleLarge)
+                if (state.status.isNotBlank()) {
+                    Card(modifier = Modifier.fillMaxWidth()) {
                         Text(
-                            text = "耗材类型",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = state.displayType.ifBlank { "未知" },
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "中文颜色名",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = state.displayColorName.ifBlank { "未知" },
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            text = "颜色代码",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = state.displayColorCode.ifBlank { "未知" },
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
+                            text = state.status,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(12.dp)
                         )
                     }
-
-                    ColorSwatch(
-                        colorValues = state.displayColors,
-                        colorType = state.displayColorType,
-                        modifier = Modifier.size(120.dp)
-                    )
                 }
-            }
 
-            if (state.secondaryFields.isNotEmpty()) {
-                GlassCard(modifier = Modifier.fillMaxWidth()) {
+                Card(modifier = Modifier.fillMaxWidth()) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(32.dp),
+                            .padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(
                             modifier = Modifier.weight(1f),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Text(text = "其他信息")
-                            state.secondaryFields.forEach { field ->
-                                InfoLine(
-                                    label = field.label,
-                                    value = field.value,
-                                    style = MaterialTheme.typography.bodySmall,
-//                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                            Text(
+                                text = "耗材类型",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = state.displayType.ifBlank { "未知" },
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "中文颜色名",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = state.displayColorName.ifBlank { "未知" },
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "颜色代码",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = state.displayColorCode.ifBlank { "未知" },
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
-//                        Spacer(modifier = Modifier.size(12.dp))
-                        Image(
-                            painter = painterResource(id = R.drawable.logo_mark),
-                            contentDescription = "Logo",
-                            modifier = Modifier.size(100.dp, 260.dp),
+
+                        ColorSwatch(
+                            colorValues = state.displayColors,
+                            colorType = state.displayColorType,
+                            modifier = Modifier.size(120.dp)
                         )
                     }
                 }
-            }
 
-            // 调试显示信息已注释，避免展示 ID/十六进制数据。
-            // InfoLine(label = "UID", value = state.uidHex)
-            // InfoLine(label = "密钥A(扇区0)", value = state.keyA0Hex)
-            // InfoLine(label = "密钥B(扇区0)", value = state.keyB0Hex)
-            // InfoLine(label = "密钥A(扇区1)", value = state.keyA1Hex)
-            // InfoLine(label = "密钥B(扇区1)", value = state.keyB1Hex)
-            // Text(text = "原始区块", style = MaterialTheme.typography.titleMedium)
-            // state.blockHexes.forEachIndexed { index, value ->
-            //     InfoLine(label = "区块 $index", value = value)
-            // }
-            // InfoLine(label = "错误", value = state.error)
+                if (state.secondaryFields.isNotEmpty()) {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(text = "其他信息", style = MaterialTheme.typography.titleSmall)
+                                state.secondaryFields.forEach { field ->
+                                    InfoLine(
+                                        label = field.label,
+                                        value = field.value,
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                            }
+                            Image(
+                                painter = painterResource(id = R.drawable.logo_mark),
+                                contentDescription = "Logo",
+                                modifier = Modifier.size(80.dp, 200.dp)
+                            )
+                        }
+                    }
+                }
+
+                // 调试显示信息已注释，避免展示 ID/十六进制数据。
+                // InfoLine(label = "UID", value = state.uidHex)
+                // InfoLine(label = "密钥A(扇区0)", value = state.keyA0Hex)
+                // InfoLine(label = "密钥B(扇区0)", value = state.keyB0Hex)
+                // InfoLine(label = "密钥A(扇区1)", value = state.keyA1Hex)
+                // InfoLine(label = "密钥B(扇区1)", value = state.keyB1Hex)
+                // Text(text = "原始区块", style = MaterialTheme.typography.titleMedium)
+                // state.blockHexes.forEachIndexed { index, value ->
+                //     InfoLine(label = "区块 $index", value = value)
+                // }
+                // InfoLine(label = "错误", value = state.error)
+            }
+            BoostFooter(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            )
         }
-        BoostFooter(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = 18.dp, vertical = 14.dp)
-        )
     }
 }
 
@@ -623,26 +579,6 @@ private fun ColorSwatch(
         }
     }
 }
-
-@Composable
-private fun GlassCard(
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit
-) {
-    val shape = RoundedCornerShape(22.dp)
-
-    Card(
-        modifier = modifier,
-        shape = shape,
-        colors = CardDefaults.cardColors(
-            containerColor = Color(0x59F7F8FC).copy(alpha = 1f) // 背景颜色
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
-    ) {
-        content()
-    }
-}
-
 
 @Preview(showBackground = true)
 @Composable
