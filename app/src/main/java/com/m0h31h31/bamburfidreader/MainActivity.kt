@@ -3,6 +3,7 @@ package com.m0h31h31.bamburfidreader
 import android.nfc.NfcAdapter
 import android.nfc.Tag
 import android.nfc.tech.MifareClassic
+import android.os.Build
 import android.os.Bundle
 import android.content.Intent
 import android.content.ContentValues
@@ -11,6 +12,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import android.provider.Settings
 import android.speech.tts.TextToSpeech
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -34,15 +36,21 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.TextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -57,17 +65,24 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.annotation.StringRes
 import com.m0h31h31.bamburfidreader.ui.theme.BambuRfidReaderTheme
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.File
+import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import org.json.JSONArray
 import org.json.JSONObject
 import javax.crypto.Mac
@@ -80,12 +95,15 @@ private const val SECTOR_COUNT = 16
 private const val LOG_TAG = "BambuRfidReader"
 private const val FILAMENT_JSON_NAME = "filaments_color_codes.json"
 private const val FILAMENT_DB_NAME = "filaments.db"
-private const val FILAMENT_DB_VERSION = 5
+private const val FILAMENT_DB_VERSION = 7
 private const val FILAMENT_TABLE = "filaments"
-private const val FILAMENT_META_TABLE = "meta"
+private const val FILAMENT_META_TABLE = "meta_v2"
 private const val FILAMENT_META_KEY_LAST_MODIFIED = "filaments_last_modified"
+private const val FILAMENT_META_KEY_LOCALE = "filaments_locale"
 private const val TRAY_UID_TABLE = "托盘UID"
 private const val DEFAULT_REMAINING_PERCENT = 100
+private const val LOG_DIR_NAME = "logs"
+private const val LOG_FILE_NAME = "bambu_rfid.log"
 private val HKDF_SALT = byteArrayOf(
     0x9a.toByte(),
     0x75.toByte(),
@@ -107,6 +125,65 @@ private val HKDF_SALT = byteArrayOf(
 private val INFO_A = "RFID-A\u0000".toByteArray(Charsets.US_ASCII)
 private val INFO_B = "RFID-B\u0000".toByteArray(Charsets.US_ASCII)
 
+private object LogCollector {
+    private val lock = Any()
+    private val formatter = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
+    @Volatile
+    private var appContext: Context? = null
+
+    fun init(context: Context) {
+        appContext = context.applicationContext
+    }
+
+    fun append(context: Context?, level: String, message: String) {
+        val targetContext = context ?: appContext ?: return
+        val baseDir = targetContext.getExternalFilesDir(null) ?: targetContext.filesDir
+        val logDir = File(baseDir, LOG_DIR_NAME)
+        if (!logDir.exists()) {
+            logDir.mkdirs()
+        }
+        val line = "${formatter.format(Date())} [$level] $message\n"
+        synchronized(lock) {
+            File(logDir, LOG_FILE_NAME).appendText(line, Charsets.UTF_8)
+        }
+    }
+
+    fun packageLogs(context: Context): String {
+        val baseDir = context.getExternalFilesDir(null) ?: context.filesDir
+        val logDir = File(baseDir, LOG_DIR_NAME)
+        if (!logDir.exists()) {
+            return "没有日志可打包"
+        }
+        val logFiles = logDir.listFiles { file -> file.isFile }?.toList().orEmpty()
+        if (logFiles.isEmpty()) {
+            return "没有日志可打包"
+        }
+        val archiveName =
+            "logs_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.zip"
+        val archive = File(baseDir, archiveName)
+        return try {
+            ZipOutputStream(archive.outputStream().buffered()).use { zip ->
+                logFiles.forEach { file ->
+                    FileInputStream(file).use { input ->
+                        zip.putNextEntry(ZipEntry("${LOG_DIR_NAME}/${file.name}"))
+                        input.copyTo(zip)
+                        zip.closeEntry()
+                    }
+                }
+            }
+            "日志已打包到 ${archive.absolutePath}"
+        } catch (e: Exception) {
+            logDebug("日志打包失败: ${e.message}")
+            "日志打包失败"
+        }
+    }
+}
+
+private fun logDebug(message: String) {
+    Log.d(LOG_TAG, message)
+    LogCollector.append(null, "D", message)
+}
+
 data class NfcUiState(
     val status: String,
     val uidHex: String = "",
@@ -124,6 +201,7 @@ data class NfcUiState(
     val secondaryFields: List<ParsedField> = emptyList(),
     val trayUidHex: String = "",
     val remainingPercent: Int = DEFAULT_REMAINING_PERCENT,
+    val totalWeightGrams: Int = 0,
     val error: String = ""
 )
 
@@ -184,6 +262,7 @@ class MainActivity : ComponentActivity() {
     private var currentScreen by mutableStateOf(AppScreen.Reader)
 
     private val readerCallback = NfcAdapter.ReaderCallback { tag ->
+        logEvent("收到NFC标签回调")
         val result = readTag(tag)
         runOnUiThread {
             uiState = result
@@ -194,6 +273,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        LogCollector.init(this)
         nfcAdapter = NfcAdapter.getDefaultAdapter(this)
         filamentDbHelper = FilamentDbHelper(this)
         filamentDbHelper?.let { syncFilamentDatabase(this, it) }
@@ -201,6 +281,8 @@ class MainActivity : ComponentActivity() {
             initTts()
         }
         uiState = NfcUiState(status = initialStatus())
+        logEvent("应用启动")
+        logDeviceInfo()
         setContent {
             BambuRfidReaderTheme {
                 when (currentScreen) {
@@ -245,16 +327,19 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        logEvent("应用进入前台")
         if (voiceEnabled && !ttsReady) {
             initTts()
         }
         val adapter = nfcAdapter
         if (adapter == null) {
-            uiState = uiState.copy(status = "设备不支持 NFC")
+            uiState = uiState.copy(status = uiString(R.string.status_device_no_nfc))
+            logEvent("设备不支持 NFC")
             return
         }
         if (!adapter.isEnabled) {
-            uiState = uiState.copy(status = "NFC 未开启，请在系统设置中启用")
+            uiState = uiState.copy(status = uiString(R.string.status_nfc_disabled))
+            logEvent("NFC 未开启")
             return
         }
         adapter.enableReaderMode(
@@ -263,30 +348,36 @@ class MainActivity : ComponentActivity() {
             NfcAdapter.FLAG_READER_NFC_A or NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK,
             null
         )
-        uiState = uiState.copy(status = "等待RFID标签")
+        uiState = uiState.copy(status = uiString(R.string.status_waiting_tag))
+        logEvent("已启用 NFC 读卡模式")
     }
 
     override fun onPause() {
         super.onPause()
         nfcAdapter?.disableReaderMode(this)
+        logEvent("应用进入后台，已关闭 NFC 读卡模式")
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        logEvent("应用退出，准备打包日志")
         filamentDbHelper?.close()
         tts?.stop()
         tts?.shutdown()
         tts = null
         ttsReady = false
         ttsLanguageReady = false
+        val result = LogCollector.packageLogs(this)
+        logDebug(result)
+        LogCollector.append(this, "I", result)
     }
 
     private fun initialStatus(): String {
         val adapter = nfcAdapter
         return when {
-            adapter == null -> "设备不支持 NFC"
-            !adapter.isEnabled -> "NFC 未开启，请在系统设置中启用"
-            else -> "等待RFID标签"
+            adapter == null -> uiString(R.string.status_device_no_nfc)
+            !adapter.isEnabled -> uiString(R.string.status_nfc_disabled)
+            else -> uiString(R.string.status_waiting_tag)
         }
     }
 
@@ -303,7 +394,44 @@ class MainActivity : ComponentActivity() {
         if (uiState.trayUidHex == trayUidHex) {
             uiState = uiState.copy(remainingPercent = updatedPercent)
         }
-        Log.d(LOG_TAG, "更新耗材余量: $trayUidHex -> $updatedPercent%")
+        logDebug("更新耗材余量: $trayUidHex -> $updatedPercent%")
+        LogCollector.append(this, "I", "更新耗材余量: $trayUidHex -> $updatedPercent%")
+    }
+
+    private fun logEvent(message: String) {
+        logDebug(message)
+    }
+
+    private fun uiString(@StringRes id: Int, vararg args: Any): String {
+        return if (args.isEmpty()) getString(id) else getString(id, *args)
+    }
+
+    private fun logDeviceInfo() {
+        logDebug(
+            "设备信息: 品牌=${Build.BRAND}, 型号=${Build.MODEL}, 制造商=${Build.MANUFACTURER}"
+        )
+        logDebug(
+            "系统信息: Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT}), " +
+                "构建=${Build.DISPLAY}, 指纹=${Build.FINGERPRINT}"
+        )
+        logDebug("内核版本: ${System.getProperty("os.version").orEmpty()}")
+        val pm = packageManager
+        val hasNfc = pm.hasSystemFeature("android.hardware.nfc")
+        val hasHce = pm.hasSystemFeature("android.hardware.nfc.hce")
+        val hasNfcF = pm.hasSystemFeature("android.hardware.nfc.hcef")
+        val hasNfcA = pm.hasSystemFeature("android.hardware.nfc.a")
+        val hasNfcB = pm.hasSystemFeature("android.hardware.nfc.b")
+        val hasNfcV = pm.hasSystemFeature("android.hardware.nfc.v")
+        val hasNfcU = pm.hasSystemFeature("android.hardware.nfc.uicc")
+        logDebug(
+            "NFC硬件特性: NFC=$hasNfc, HCE=$hasHce, HCEF=$hasNfcF, A=$hasNfcA, B=$hasNfcB, V=$hasNfcV, UICC=$hasNfcU"
+        )
+        val adapter = nfcAdapter
+        if (adapter == null) {
+            logDebug("NFC适配器: 未找到")
+        } else {
+            logDebug("NFC适配器: 已找到, 状态=${if (adapter.isEnabled) "开启" else "关闭"}")
+        }
     }
 
     private fun backupDatabase(): String {
@@ -320,7 +448,7 @@ class MainActivity : ComponentActivity() {
             dbFile.copyTo(backupFile, overwrite = true)
             "数据库备份成功"
         } catch (e: Exception) {
-            Log.d(LOG_TAG, "数据库备份失败: ${e.message}")
+            logDebug("数据库备份失败: ${e.message}")
             "数据库备份失败"
         }
     }
@@ -341,7 +469,7 @@ class MainActivity : ComponentActivity() {
             filamentDbHelper?.writableDatabase
             "数据库导入成功"
         } catch (e: Exception) {
-            Log.d(LOG_TAG, "数据库导入失败: ${e.message}")
+            logDebug("数据库导入失败: ${e.message}")
             "数据库导入失败"
         }
     }
@@ -367,21 +495,18 @@ class MainActivity : ComponentActivity() {
                         result != TextToSpeech.LANG_NOT_SUPPORTED
                     ) {
                         ttsLanguageReady = true
-                        Log.d(LOG_TAG, "语音语言可用: $locale")
+                        logDebug("语音语言可用: $locale")
                         break
                     }
                 }
                 if (!ttsLanguageReady) {
-                    Log.d(LOG_TAG, "没有可用的语音语言")
+                    logDebug("没有可用的语音语言")
                 }
-                Log.d(
-                    LOG_TAG,
-                    "语音引擎初始化完成: $ttsReady，语言就绪: $ttsLanguageReady"
-                )
+                logDebug("语音引擎初始化完成: $ttsReady，语言就绪: $ttsLanguageReady")
             } else {
                 ttsReady = false
                 ttsLanguageReady = false
-                Log.d(LOG_TAG, "语音引擎初始化失败")
+                logDebug("语音引擎初始化失败")
             }
         }
     }
@@ -420,7 +545,7 @@ class MainActivity : ComponentActivity() {
         }
         val message = parts.joinToString(separator = "，")
         if (message.isNotBlank()) {
-            Log.d(LOG_TAG, "语音播报内容: $message")
+            logDebug("语音播报内容: $message")
             tts?.speak(message, TextToSpeech.QUEUE_FLUSH, null, "scan_result")
         }
     }
@@ -458,9 +583,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun readTag(tag: Tag): NfcUiState {
-        val uid = tag.id ?: return NfcUiState(status = "未读取到 UID")
+        val uid = tag.id ?: return NfcUiState(status = uiString(R.string.status_uid_missing))
         val uidHex = uid.toHex()
-        Log.d(LOG_TAG, "UID: $uidHex")
+        logDebug("UID: $uidHex")
+        LogCollector.append(applicationContext, "I", "开始读取标签 UID: $uidHex")
 
         val keysA = deriveKeys(uid, INFO_A)
         val keysB = deriveKeys(uid, INFO_B)
@@ -481,8 +607,7 @@ class MainActivity : ComponentActivity() {
         val keyB1Hex = keyB1?.toHex().orEmpty()
         val keyA4Hex = keyA4?.toHex().orEmpty()
         val keyB4Hex = keyB4?.toHex().orEmpty()
-        Log.d(
-            LOG_TAG,
+        logDebug(
             "密钥A0: $keyA0Hex, 密钥B0: $keyB0Hex, 密钥A1: $keyA1Hex, 密钥B1: $keyB1Hex, 密钥A3: ${
                 keyA3?.toHex().orEmpty()
             }, 密钥B3: ${keyB3?.toHex().orEmpty()}, 密钥A4: $keyA4Hex, 密钥B4: $keyB4Hex"
@@ -490,17 +615,18 @@ class MainActivity : ComponentActivity() {
 
         val mifare = MifareClassic.get(tag)
             ?: return NfcUiState(
-                status = "读取失败",
+                status = uiString(R.string.status_read_failed),
                 uidHex = uidHex,
                 keyA0Hex = keyA0Hex,
                 keyB0Hex = keyB0Hex,
                 keyA1Hex = keyA1Hex,
                 keyB1Hex = keyB1Hex,
-                error = "不支持 MIFARE Classic"
+                error = uiString(R.string.error_mifare_unsupported)
             )
 
         return try {
             mifare.connect()
+            LogCollector.append(applicationContext, "I", "已连接 MIFARE Classic")
             val blockData = MutableList<ByteArray?>(8) { null }
             val rawBlocks = MutableList<ByteArray?>(18) { null }
             var block12: ByteArray? = null
@@ -509,7 +635,8 @@ class MainActivity : ComponentActivity() {
 
             val sector0 = readSector(mifare, 0, keyA0, keyB0)
             if (sector0.blocks.isNotEmpty()) {
-                Log.d(LOG_TAG, "扇区0读取成功，读取到 ${sector0.blocks.size} 个区块")
+                logDebug("扇区0读取成功，读取到 ${sector0.blocks.size} 个区块")
+                LogCollector.append(applicationContext, "I", "扇区0读取成功")
                 sector0.blocks.forEachIndexed { index, data ->
                     blockData[index] = data
                     if (index < rawBlocks.size) {
@@ -517,13 +644,20 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             } else if (sector0.error.isNotBlank()) {
-                Log.d(LOG_TAG, "扇区0读取失败: ${sector0.error}")
+                logDebug("扇区0读取失败: ${sector0.error}")
+                LogCollector.append(applicationContext, "W", "扇区0读取失败: ${sector0.error}")
                 errors.add(sector0.error)
             }
 
+            try {
+                Thread.sleep(15)
+            } catch (_: InterruptedException) {
+                // Ignore.
+            }
             val sector1 = readSector(mifare, 1, keyA1, keyB1)
             if (sector1.blocks.isNotEmpty()) {
-                Log.d(LOG_TAG, "扇区1读取成功，读取到 ${sector1.blocks.size} 个区块")
+                logDebug("扇区1读取成功，读取到 ${sector1.blocks.size} 个区块")
+                LogCollector.append(applicationContext, "I", "扇区1读取成功")
                 sector1.blocks.forEachIndexed { index, data ->
                     blockData[index + 4] = data
                     val rawIndex = index + 4
@@ -532,13 +666,20 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             } else if (sector1.error.isNotBlank()) {
-                Log.d(LOG_TAG, "扇区1读取失败: ${sector1.error}")
+                logDebug("扇区1读取失败: ${sector1.error}")
+                LogCollector.append(applicationContext, "W", "扇区1读取失败: ${sector1.error}")
                 errors.add(sector1.error)
             }
 
+            try {
+                Thread.sleep(15)
+            } catch (_: InterruptedException) {
+                // Ignore.
+            }
             val sector2 = readSector(mifare, 2, keyA2, keyB2)
             if (sector2.blocks.isNotEmpty()) {
-                Log.d(LOG_TAG, "扇区2认证成功，读取到 ${sector2.blocks.size} 个区块")
+                logDebug("扇区2认证成功，读取到 ${sector2.blocks.size} 个区块")
+                LogCollector.append(applicationContext, "I", "扇区2读取成功")
                 sector2.blocks.forEachIndexed { index, data ->
                     val rawIndex = index + 8
                     if (rawIndex < rawBlocks.size) {
@@ -546,9 +687,15 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             } else if (sector2.error.isNotBlank()) {
-                Log.d(LOG_TAG, "扇区2认证失败: ${sector2.error}")
+                logDebug("扇区2认证失败: ${sector2.error}")
+                LogCollector.append(applicationContext, "W", "扇区2读取失败: ${sector2.error}")
             }
 
+            try {
+                Thread.sleep(15)
+            } catch (_: InterruptedException) {
+                // Ignore.
+            }
             val sector3 = readSector(mifare, 3, keyA3, keyB3)
             if (sector3.blocks.isNotEmpty()) {
                 block12 = sector3.blocks.getOrNull(0)
@@ -559,14 +706,21 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 if (block12 != null) {
-                    Log.d(LOG_TAG, "扇区3读取区块12: ${block12?.toHex().orEmpty()}")
+                    logDebug("扇区3读取区块12: ${block12?.toHex().orEmpty()}")
+                    LogCollector.append(applicationContext, "I", "扇区3读取成功")
                 } else {
-                    Log.d(LOG_TAG, "扇区3未读取到区块12")
+                    logDebug("扇区3未读取到区块12")
                 }
             } else if (sector3.error.isNotBlank()) {
-                Log.d(LOG_TAG, "扇区3读取失败: ${sector3.error}")
+                logDebug("扇区3读取失败: ${sector3.error}")
+                LogCollector.append(applicationContext, "W", "扇区3读取失败: ${sector3.error}")
             }
 
+            try {
+                Thread.sleep(15)
+            } catch (_: InterruptedException) {
+                // Ignore.
+            }
             val sector4 = readSector(mifare, 4, keyA4, keyB4)
             if (sector4.blocks.isNotEmpty()) {
                 block16 = sector4.blocks.getOrNull(0)
@@ -577,20 +731,22 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 if (block16 != null) {
-                    Log.d(LOG_TAG, "扇区4读取区块16: ${block16?.toHex().orEmpty()}")
+                    logDebug("扇区4读取区块16: ${block16?.toHex().orEmpty()}")
+                    LogCollector.append(applicationContext, "I", "扇区4读取成功")
                 } else {
-                    Log.d(LOG_TAG, "扇区4未读取到区块16")
+                    logDebug("扇区4未读取到区块16")
                 }
             } else if (sector4.error.isNotBlank()) {
-                Log.d(LOG_TAG, "扇区4读取失败: ${sector4.error}")
+                logDebug("扇区4读取失败: ${sector4.error}")
+                LogCollector.append(applicationContext, "W", "扇区4读取失败: ${sector4.error}")
             }
 
             rawBlocks.forEachIndexed { index, data ->
                 val hex = data?.toHex().orEmpty()
                 if (hex.isNotBlank()) {
-                    Log.d(LOG_TAG, "原始区块 $index: $hex")
+                    logDebug("原始区块 $index: $hex")
                 } else {
-                    Log.d(LOG_TAG, "原始区块 $index: <空>")
+                    logDebug("原始区块 $index: <空>")
                 }
             }
 
@@ -604,30 +760,29 @@ class MainActivity : ComponentActivity() {
                     remainingPercent = stored ?: DEFAULT_REMAINING_PERCENT
                     dbHelper.upsertTrayRemainingPercent(db, trayUidHex, remainingPercent)
                 }
-                Log.d(LOG_TAG, "托盘UID(区块9): $trayUidHex, 余量: $remainingPercent%")
+                logDebug("托盘UID(区块9): $trayUidHex, 余量: $remainingPercent%")
+                LogCollector.append(applicationContext, "I", "托盘UID(区块9): $trayUidHex, 余量: $remainingPercent%")
             } else {
-                Log.d(LOG_TAG, "未读取到区块9托盘UID")
+                logDebug("未读取到区块9托盘UID")
+                LogCollector.append(applicationContext, "W", "未读取到区块9托盘UID")
             }
 
             val blockHexes = blockData.map { data -> data?.toHex().orEmpty() }
             blockHexes.forEachIndexed { index, value ->
                 if (value.isNotBlank()) {
-                    Log.d(LOG_TAG, "区块 $index: $value")
+                    logDebug("区块 $index: $value")
                 }
             }
             val parsedBlockData = parseBlocks(blockData, block12, block16)
+            val totalWeightGrams = extractWeightGrams(parsedBlockData.fields)
             val displayData = buildDisplayData(parsedBlockData, filamentDbHelper)
             parsedBlockData.fields.forEach { field ->
-                Log.d(LOG_TAG, "解析字段: ${field.label}=${field.value}")
+                logDebug("解析字段: ${field.label}=${field.value}")
             }
             if (parsedBlockData.colorValues.isNotEmpty()) {
-                Log.d(
-                    LOG_TAG,
-                    "读取颜色值: ${parsedBlockData.colorValues.joinToString(separator = ",")}"
-                )
+                logDebug("读取颜色值: ${parsedBlockData.colorValues.joinToString(separator = ",")}")
             }
-            Log.d(
-                LOG_TAG,
+            logDebug(
                 "展示数据: 类型=${displayData.type}, 颜色名=${displayData.colorName}, 颜色代码=${displayData.colorCode}, 颜色类型=${displayData.colorType}, 颜色列表=${
                     displayData.colorValues.joinToString(
                         separator = ","
@@ -652,12 +807,12 @@ class MainActivity : ComponentActivity() {
                 }
             }
             val status = when {
-                errors.isEmpty() -> "读取成功"
-                blockHexes.any { it.isNotBlank() } -> "部分读取成功"
-                else -> "读取失败"
+                errors.isEmpty() -> uiString(R.string.status_read_success)
+                blockHexes.any { it.isNotBlank() } -> uiString(R.string.status_read_partial)
+                else -> uiString(R.string.status_read_failed)
             }
             if (errors.isNotEmpty()) {
-                Log.d(LOG_TAG, "读取错误: ${errors.joinToString(separator = "; ")}")
+                logDebug("读取错误: ${errors.joinToString(separator = "; ")}")
             }
 
             NfcUiState(
@@ -677,22 +832,25 @@ class MainActivity : ComponentActivity() {
                 secondaryFields = displayData.secondaryFields,
                 trayUidHex = trayUidHex,
                 remainingPercent = remainingPercent,
+                totalWeightGrams = totalWeightGrams,
                 error = errors.joinToString(separator = "; ")
             )
         } catch (e: Exception) {
-            Log.d(LOG_TAG, "读取异常: ${e.message}")
+            logDebug("读取异常: ${e.message}")
+            LogCollector.append(applicationContext, "E", "读取异常: ${e.message}")
             NfcUiState(
-                status = "读取失败",
+                status = uiString(R.string.status_read_failed),
                 uidHex = uidHex,
                 keyA0Hex = keyA0Hex,
                 keyB0Hex = keyB0Hex,
                 keyA1Hex = keyA1Hex,
                 keyB1Hex = keyB1Hex,
-                error = e.message ?: "读取异常"
+                error = e.message ?: uiString(R.string.error_read_exception)
             )
         } finally {
             try {
                 mifare.close()
+                LogCollector.append(applicationContext, "I", "已断开 MIFARE Classic")
             } catch (_: IOException) {
                 // Ignore close errors.
             }
@@ -709,7 +867,7 @@ private fun BoostFooter(modifier: Modifier = Modifier) {
         onClick = { uriHandler.openUri(boostLink) },
         modifier = modifier
     ) {
-        Text(text = "助力：打开 Bambu APP")
+        Text(text = stringResource(R.string.action_boost_open_bambu))
     }
 }
 
@@ -725,6 +883,8 @@ private fun NfcScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    var logoTapCount by remember { mutableStateOf(0) }
+    var logoLastTapAt by remember { mutableStateOf(0L) }
     Surface(
         modifier = modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
@@ -742,12 +902,12 @@ private fun NfcScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Bambu RFID 读取器",
+                        text = stringResource(R.string.app_title),
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.weight(1f)
                     )
                     TextButton(onClick = onInventoryClick) {
-                        Text(text = "库存")
+                        Text(text = stringResource(R.string.action_inventory))
                     }
                 }
                 if (state.status.isNotBlank()) {
@@ -764,10 +924,14 @@ private fun NfcScreen(
                                 modifier = Modifier.weight(1f)
                             )
                             val voiceHint = when {
-                                voiceEnabled && !ttsReady -> "引擎未就绪"
-                                voiceEnabled && !ttsLanguageReady -> "语言不可用"
-                                voiceEnabled -> "已开启"
-                                else -> "已关闭"
+                                voiceEnabled && !ttsReady -> stringResource(
+                                    R.string.voice_status_engine_not_ready
+                                )
+                                voiceEnabled && !ttsLanguageReady -> stringResource(
+                                    R.string.voice_status_language_unavailable
+                                )
+                                voiceEnabled -> stringResource(R.string.voice_status_on)
+                                else -> stringResource(R.string.voice_status_off)
                             }
                             val canOpenTtsSettings =
                                 voiceEnabled && (!ttsReady || !ttsLanguageReady)
@@ -780,9 +944,9 @@ private fun NfcScreen(
                                 )
                                 Text(
                                     text = if (canOpenTtsSettings) {
-                                        "语音设置"
+                                        stringResource(R.string.action_voice_settings)
                                     } else {
-                                        "语音$voiceHint"
+                                        stringResource(R.string.voice_status_prefix, voiceHint)
                                     },
                                     style = MaterialTheme.typography.labelSmall.copy(
                                         color = if (canOpenTtsSettings) {
@@ -802,7 +966,7 @@ private fun NfcScreen(
                                             .clickable {
                                                 val opened = openTtsSettings(context)
                                                 if (!opened) {
-                                                    Log.d(LOG_TAG, "无法打开语音设置")
+                                                    logDebug("无法打开语音设置")
                                                 }
                                             }
                                     } else {
@@ -815,10 +979,33 @@ private fun NfcScreen(
                 }
 
                 val trayUidAvailable = state.trayUidHex.isNotBlank()
-                var sliderValue by remember(state.trayUidHex, state.remainingPercent) {
-                    mutableStateOf(state.remainingPercent.toFloat())
+                val totalWeight = state.totalWeightGrams
+                val hasWeight = totalWeight > 0
+                val derivedGrams = if (hasWeight) {
+                    (totalWeight * state.remainingPercent / 100.0).roundToInt()
+                } else {
+                    0
                 }
-                val percentValue = sliderValue.roundToInt().coerceIn(0, 100)
+                var gramsValue by remember(
+                    state.trayUidHex,
+                    state.remainingPercent,
+                    state.totalWeightGrams
+                ) {
+                    mutableStateOf(derivedGrams.toFloat())
+                }
+                var gramsText by remember(
+                    state.trayUidHex,
+                    state.remainingPercent,
+                    state.totalWeightGrams
+                ) {
+                    mutableStateOf(if (hasWeight) derivedGrams.toString() else "")
+                }
+                val gramsInt = gramsValue.roundToInt().coerceIn(0, totalWeight.coerceAtLeast(0))
+                val percentValue = if (hasWeight) {
+                    (gramsInt * 100f / totalWeight).roundToInt().coerceIn(0, 100)
+                } else {
+                    state.remainingPercent.coerceIn(0, 100)
+                }
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(
                         modifier = Modifier
@@ -835,7 +1022,24 @@ private fun NfcScreen(
                             ColorSwatch(
                                 colorValues = state.displayColors,
                                 colorType = state.displayColorType,
-                                modifier = Modifier.size(120.dp)
+                                modifier = Modifier
+                                    .size(120.dp)
+                                    .clickable {
+                                        val now = System.currentTimeMillis()
+                                        if (now - logoLastTapAt > 1500) {
+                                            logoTapCount = 0
+                                        }
+                                        logoLastTapAt = now
+                                        logoTapCount += 1
+                                        if (logoTapCount >= 5) {
+                                            logoTapCount = 0
+                                            val result = LogCollector.packageLogs(context)
+                                            logDebug(result)
+                                            Toast
+                                                .makeText(context, result, Toast.LENGTH_SHORT)
+                                                .show()
+                                        }
+                                    }
                             )
 
                             Column(
@@ -844,32 +1048,38 @@ private fun NfcScreen(
 //                                verticalArrangement = Arrangement.spacedBy(1.dp)
                             ) {
                                 Text(
-                                    text = "耗材类型",
+                                    text = stringResource(R.string.label_material_type),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
-                                    text = state.displayType.ifBlank { "未知" },
+                                    text = state.displayType.ifBlank {
+                                        stringResource(R.string.label_unknown)
+                                    },
                                     style = MaterialTheme.typography.titleLarge,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    text = "颜色名",
+                                    text = stringResource(R.string.label_color_name),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
-                                    text = state.displayColorName.ifBlank { "未知" },
+                                    text = state.displayColorName.ifBlank {
+                                        stringResource(R.string.label_unknown)
+                                    },
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
-                                    text = "颜色代码",
+                                    text = stringResource(R.string.label_color_code),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
-                                    text = state.displayColorCode.ifBlank { "未知" },
+                                    text = state.displayColorCode.ifBlank {
+                                        stringResource(R.string.label_unknown)
+                                    },
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.SemiBold
                                 )
@@ -878,32 +1088,118 @@ private fun NfcScreen(
                         }
 
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(text = "耗材余量", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                text = stringResource(R.string.label_remaining),
+                                style = MaterialTheme.typography.titleSmall
+                            )
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Slider(
-                                    value = sliderValue,
-                                    onValueChange = { sliderValue = it },
-                                    valueRange = 0f..100f,
-                                    enabled = trayUidAvailable,
-                                    modifier = Modifier.weight(1f).height(25.dp),
-                                    onValueChangeFinished = {
-                                        if (trayUidAvailable) {
-                                            onRemainingChange(state.trayUidHex, percentValue)
+                                TextButton(
+                                    onClick = {
+                                        if (trayUidAvailable && hasWeight) {
+                                            val next = (gramsInt - 10).coerceAtLeast(0)
+                                            gramsValue = next.toFloat()
+                                            gramsText = next.toString()
+                                            onRemainingChange(
+                                                state.trayUidHex,
+                                                (next * 100f / totalWeight).roundToInt()
+                                            )
                                         }
-                                    }
+                                    },
+                                    enabled = trayUidAvailable && hasWeight
+                                ) {
+                                    Text(text = "－")
+                                }
+                                TextField(
+                                    value = gramsText,
+                                    onValueChange = { text ->
+                                        gramsText = text.filter { it.isDigit() }
+                                        if (trayUidAvailable && hasWeight) {
+                                            val next = gramsText.toIntOrNull()
+                                                ?.coerceIn(0, totalWeight) ?: 0
+                                            gramsValue = next.toFloat()
+                                            onRemainingChange(
+                                                state.trayUidHex,
+                                                (next * 100f / totalWeight).roundToInt()
+                                            )
+                                        }
+                                    },
+                                    singleLine = true,
+                                    enabled = trayUidAvailable && hasWeight,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(horizontal = 4.dp)
                                 )
                                 Text(
-                                    text = "${percentValue}%",
+                                    text = if (hasWeight) {
+                                        stringResource(R.string.unit_grams)
+                                    } else {
+                                        stringResource(R.string.message_weight_missing_short)
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                TextButton(
+                                    onClick = {
+                                        if (trayUidAvailable && hasWeight) {
+                                            val next = (gramsInt + 10)
+                                                .coerceAtMost(totalWeight)
+                                            gramsValue = next.toFloat()
+                                            gramsText = next.toString()
+                                            onRemainingChange(
+                                                state.trayUidHex,
+                                                (next * 100f / totalWeight).roundToInt()
+                                            )
+                                        }
+                                    },
+                                    enabled = trayUidAvailable && hasWeight
+                                ) {
+                                    Text(text = "＋")
+                                }
+                                Text(
+                                    text = stringResource(R.string.format_percent, percentValue),
                                     style = MaterialTheme.typography.bodyMedium,
                                     modifier = Modifier.padding(start = 8.dp)
                                 )
                             }
+                            Slider(
+                                value = gramsValue,
+                                onValueChange = { value ->
+                                    if (trayUidAvailable && hasWeight) {
+                                        val next = value.roundToInt().coerceIn(0, totalWeight)
+                                        gramsValue = next.toFloat()
+                                        gramsText = next.toString()
+                                    }
+                                },
+                                valueRange = 0f..(if (hasWeight) totalWeight.toFloat() else 1f),
+                                enabled = trayUidAvailable && hasWeight,
+                                modifier = Modifier.fillMaxWidth(),
+                                onValueChangeFinished = {
+                                    if (trayUidAvailable && hasWeight) {
+                                        onRemainingChange(state.trayUidHex, percentValue)
+                                    }
+                                }
+                            )
                             if (!trayUidAvailable) {
                                 Text(
-                                    text = "未读取到托盘UID，无法保存余量",
+                                    text = stringResource(R.string.message_tray_uid_missing),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            } else if (!hasWeight) {
+                                Text(
+                                    text = stringResource(R.string.message_weight_missing),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            } else {
+                                Text(
+                                    text = stringResource(
+                                        R.string.format_total_weight,
+                                        totalWeight
+                                    ),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -924,7 +1220,10 @@ private fun NfcScreen(
                                 modifier = Modifier.weight(1f),
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Text(text = "其他信息", style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    text = stringResource(R.string.label_other_info),
+                                    style = MaterialTheme.typography.titleSmall
+                                )
                                 state.secondaryFields.forEach { field ->
                                     InfoLine(
                                         label = field.label,
@@ -935,7 +1234,7 @@ private fun NfcScreen(
                             }
                             Image(
                                 painter = painterResource(id = R.drawable.logo_mark),
-                                contentDescription = "标志",
+                                contentDescription = stringResource(R.string.content_logo),
                                 modifier = Modifier.size(80.dp, 200.dp)
                             )
                         }
@@ -963,6 +1262,7 @@ private fun NfcScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun InventoryScreen(
     dbHelper: FilamentDbHelper?,
@@ -975,6 +1275,7 @@ private fun InventoryScreen(
     var items by remember { mutableStateOf<List<InventoryItem>>(emptyList()) }
     var message by remember { mutableStateOf("") }
     var refreshKey by remember { mutableStateOf(0) }
+    var pendingDelete by remember { mutableStateOf<InventoryItem?>(null) }
 
     LaunchedEffect(dbHelper, query, refreshKey) {
         val db = dbHelper?.readableDatabase
@@ -983,6 +1284,36 @@ private fun InventoryScreen(
         } else {
             emptyList()
         }
+    }
+
+    if (pendingDelete != null) {
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text(text = stringResource(R.string.dialog_delete_title)) },
+            text = { Text(text = stringResource(R.string.dialog_delete_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val target = pendingDelete
+                        if (target != null) {
+                            val db = dbHelper?.writableDatabase
+                            if (db != null) {
+                                dbHelper.deleteTrayInventory(db, target.trayUid)
+                            }
+                            items = items.filter { it.trayUid != target.trayUid }
+                        }
+                        pendingDelete = null
+                    }
+                ) {
+                    Text(text = stringResource(R.string.action_delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) {
+                    Text(text = stringResource(R.string.action_cancel))
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -1009,7 +1340,7 @@ private fun InventoryScreen(
                         onClick = { message = onBackupDatabase() },
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text(text = "备份数据库")
+                        Text(text = stringResource(R.string.action_backup_db))
                     }
                     Button(
                         onClick = {
@@ -1018,7 +1349,7 @@ private fun InventoryScreen(
                         },
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text(text = "导入数据库")
+                        Text(text = stringResource(R.string.action_import_db))
                     }
                 }
             }
@@ -1036,24 +1367,24 @@ private fun InventoryScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "耗材库存",
+                    text = stringResource(R.string.inventory_title),
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.weight(1f)
                 )
                 TextButton(onClick = onBack) {
-                    Text(text = "返回")
+                    Text(text = stringResource(R.string.action_back))
                 }
             }
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
-                placeholder = { Text(text = "搜索任意字段") },
+                placeholder = { Text(text = stringResource(R.string.inventory_search_placeholder)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
             if (items.isEmpty()) {
                 Text(
-                    text = "暂无库存数据",
+                    text = stringResource(R.string.inventory_empty),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1063,67 +1394,118 @@ private fun InventoryScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(items, key = { it.trayUid }) { item ->
-                        Card(modifier = Modifier.fillMaxWidth()) {
-                            Column(
-                                modifier = Modifier.padding(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(2.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    ColorSwatch(
-                                        colorValues = item.colorValues,
-                                        colorType = item.colorType,
-                                        modifier = Modifier.size(36.dp)
-                                    )
-                                    Column(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .padding(start = 8.dp),
-                                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                                    ) {
-                                        Text(
-                                            text = item.materialType.ifBlank { "未知耗材" },
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Text(
-                                                text = item.colorName.ifBlank { "未知颜色" },
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                            Text(
-                                                text = if (item.colorCode.isNotBlank()) {
-                                                    "色号 ${item.colorCode}"
-                                                } else {
-                                                    "色号 未知"
-                                                },
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
+                        val dismissState = rememberSwipeToDismissBoxState(
+                            confirmValueChange = { value ->
+                                if (value == SwipeToDismissBoxValue.EndToStart) {
+                                    if (pendingDelete == null) {
+                                        pendingDelete = item
                                     }
-                                    LinearProgressIndicator(
-                                        progress = { item.remainingPercent / 100f },
-                                        modifier = Modifier
-                                            .weight(0.6f)
-                                            .height(6.dp)
-                                            .padding(end = 8.dp)
-                                            .clip(RoundedCornerShape(4.dp))
-                                    )
+                                    false
+                                } else {
+                                    false
+                                }
+                            }
+                        )
+                        SwipeToDismissBox(
+                            state = dismissState,
+                            backgroundContent = {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(vertical = 6.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Color(0xFFE54D4D))
+                                        .padding(horizontal = 16.dp),
+                                    contentAlignment = Alignment.CenterEnd
+                                ) {
                                     Text(
-                                        text = "${item.remainingPercent}%",
+                                        text = stringResource(R.string.action_delete),
                                         style = MaterialTheme.typography.bodyMedium,
+                                        color = Color.White,
                                         fontWeight = FontWeight.SemiBold
                                     )
                                 }
+                            },
+                            content = {
+                                Card(modifier = Modifier.fillMaxWidth()) {
+                                    Column(
+                                        modifier = Modifier.padding(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            ColorSwatch(
+                                                colorValues = item.colorValues,
+                                                colorType = item.colorType,
+                                                modifier = Modifier.size(36.dp)
+                                            )
+                                            Column(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .padding(start = 8.dp),
+                                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                                            ) {
+                                                Text(
+                                                    text = item.materialType.ifBlank {
+                                                        stringResource(
+                                                            R.string.inventory_unknown_material
+                                                        )
+                                                    },
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    Text(
+                                                        text = item.colorName.ifBlank {
+                                                            stringResource(
+                                                                R.string.inventory_unknown_color
+                                                            )
+                                                        },
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                    Text(
+                                                        text = if (item.colorCode.isNotBlank()) {
+                                                            stringResource(
+                                                                R.string.inventory_color_code_format,
+                                                                item.colorCode
+                                                            )
+                                                        } else {
+                                                            stringResource(
+                                                                R.string.inventory_color_code_unknown
+                                                            )
+                                                        },
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+                                            LinearProgressIndicator(
+                                                progress = { item.remainingPercent / 100f },
+                                                modifier = Modifier
+                                                    .weight(0.6f)
+                                                    .height(6.dp)
+                                                    .padding(end = 8.dp)
+                                                    .clip(RoundedCornerShape(4.dp))
+                                            )
+                                            Text(
+                                                text = stringResource(
+                                                    R.string.format_percent,
+                                                    item.remainingPercent
+                                                ),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+                                    }
+                                }
                             }
-                        }
+                        )
                     }
                 }
             }
@@ -1158,7 +1540,7 @@ private fun openTtsSettings(context: Context): Boolean {
                 context.startActivity(intent)
                 true
             } catch (e: Exception) {
-                Log.d(LOG_TAG, "打开语音设置失败: ${e.message}")
+                logDebug("打开语音设置失败: ${e.message}")
                 false
             }
         }
@@ -1239,6 +1621,7 @@ private fun PreviewNfcScreen() {
                 displayColors = listOf("#FF6A13FF"),
                 trayUidHex = "AABBCCDDEEFF00112233445566778899",
                 remainingPercent = 75,
+                totalWeightGrams = 1000,
                 secondaryFields = listOf(
                     ParsedField(label = "耗材重量", value = "1000 克"),
                     ParsedField(label = "耗材直径", value = "1.75 毫米"),
@@ -1431,8 +1814,7 @@ private fun parseAdditionalColors(block16: ByteArray?): List<String> {
         }
     }
     if (colors.isNotEmpty()) {
-        Log.d(
-            LOG_TAG,
+        logDebug(
             "区块16多色数据: 标识=0x%04X 颜色数量=%d 颜色=%s".format(
                 marker,
                 count,
@@ -1667,7 +2049,7 @@ private data class FilamentJsonSource(
 
 private fun syncFilamentDatabase(context: Context, dbHelper: FilamentDbHelper) {
     val source = readFilamentJsonFromExternal(context) ?: return
-    Log.d(LOG_TAG, "配置文件更新时间: ${source.lastModified}")
+    logDebug("配置文件更新时间: ${source.lastModified}")
     val cacheFile = File(context.cacheDir, FILAMENT_JSON_NAME)
     try {
         cacheFile.writeText(source.jsonText, Charsets.UTF_8)
@@ -1678,8 +2060,10 @@ private fun syncFilamentDatabase(context: Context, dbHelper: FilamentDbHelper) {
     val db = dbHelper.writableDatabase
     val lastModifiedValue = source.lastModified.toString()
     val storedVersion = dbHelper.getMetaValue(db, FILAMENT_META_KEY_LAST_MODIFIED)
-    if (storedVersion == lastModifiedValue) {
-        Log.d(LOG_TAG, "配置文件未变化，跳过更新")
+    val currentLocale = Locale.getDefault().language.lowercase(Locale.US)
+    val storedLocale = dbHelper.getMetaValue(db, FILAMENT_META_KEY_LOCALE)
+    if (storedVersion == lastModifiedValue && storedLocale == currentLocale) {
+        logDebug("配置文件未变化，跳过更新")
         return
     }
 
@@ -1705,8 +2089,9 @@ private fun syncFilamentDatabase(context: Context, dbHelper: FilamentDbHelper) {
             )
         }
         dbHelper.setMetaValue(db, FILAMENT_META_KEY_LAST_MODIFIED, lastModifiedValue)
+        dbHelper.setMetaValue(db, FILAMENT_META_KEY_LOCALE, currentLocale)
         db.setTransactionSuccessful()
-        Log.d(LOG_TAG, "配置数据写入完成: ${entries.size}")
+        logDebug("配置数据写入完成: ${entries.size}")
     } finally {
         db.endTransaction()
     }
@@ -1743,13 +2128,14 @@ private fun parseFilamentEntries(jsonText: String): List<FilamentColorEntry> {
     }
     val data = root.optJSONArray("data") ?: JSONArray()
     val entries = ArrayList<FilamentColorEntry>(data.length())
+    val language = Locale.getDefault().language.lowercase(Locale.US)
     for (i in 0 until data.length()) {
         val item = data.optJSONObject(i) ?: continue
         val filaId = item.optString("fila_id")
         if (filaId.isBlank()) {
             continue
         }
-        val colorNameZh = item.optJSONObject("fila_color_name")?.optString("zh").orEmpty()
+        val colorNameZh = resolveColorName(item.optJSONObject("fila_color_name"), language)
         val colorsArray = item.optJSONArray("fila_color")
         val colorValues = ArrayList<String>()
         if (colorsArray != null) {
@@ -1773,6 +2159,31 @@ private fun parseFilamentEntries(jsonText: String): List<FilamentColorEntry> {
         )
     }
     return entries
+}
+
+private fun resolveColorName(colorNames: JSONObject?, language: String): String {
+    if (colorNames == null) {
+        return ""
+    }
+    val normalized = language.lowercase(Locale.US)
+    val direct = colorNames.optString(normalized).orEmpty()
+    if (direct.isNotBlank()) {
+        return direct
+    }
+    val fallback = colorNames.optString("en").orEmpty()
+    if (fallback.isNotBlank()) {
+        return fallback
+    }
+    val zh = colorNames.optString("zh").orEmpty()
+    if (zh.isNotBlank()) {
+        return zh
+    }
+    val keys = colorNames.keys()
+    if (keys.hasNext()) {
+        val firstKey = keys.next()
+        return colorNames.optString(firstKey).orEmpty()
+    }
+    return ""
 }
 
 private fun queryFilamentEntries(
@@ -1896,7 +2307,7 @@ private class FilamentDbHelper(context: Context) :
         db.execSQL(
             """
             CREATE TABLE IF NOT EXISTS $FILAMENT_META_TABLE (
-                key TEXT PRIMARY KEY,
+                meta_key TEXT PRIMARY KEY,
                 value TEXT
             )
             """.trimIndent()
@@ -1933,6 +2344,18 @@ private class FilamentDbHelper(context: Context) :
             addTrayColumn(db, "color_type", "TEXT")
             addTrayColumn(db, "color_values", "TEXT")
         }
+        if (oldVersion < 7) {
+            db.execSQL("DROP TABLE IF EXISTS meta")
+            db.execSQL("DROP TABLE IF EXISTS $FILAMENT_META_TABLE")
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS $FILAMENT_META_TABLE (
+                    meta_key TEXT PRIMARY KEY,
+                    value TEXT
+                )
+                """.trimIndent()
+            )
+        }
     }
 
     private fun addTrayColumn(db: SQLiteDatabase, column: String, type: String) {
@@ -1947,7 +2370,7 @@ private class FilamentDbHelper(context: Context) :
         val cursor = db.query(
             FILAMENT_META_TABLE,
             arrayOf("value"),
-            "key = ?",
+            "meta_key = ?",
             arrayOf(key),
             null,
             null,
@@ -1960,7 +2383,7 @@ private class FilamentDbHelper(context: Context) :
 
     fun setMetaValue(db: SQLiteDatabase, key: String, value: String) {
         val values = ContentValues()
-        values.put("key", key)
+        values.put("meta_key", key)
         values.put("value", value)
         db.insertWithOnConflict(
             FILAMENT_META_TABLE,
@@ -2094,6 +2517,20 @@ private class FilamentDbHelper(context: Context) :
             return results
         }
     }
+
+    fun deleteTrayInventory(db: SQLiteDatabase, trayUid: String) {
+        db.delete(
+            TRAY_UID_TABLE,
+            "tray_uid = ?",
+            arrayOf(trayUid)
+        )
+    }
+}
+
+private fun extractWeightGrams(fields: List<ParsedField>): Int {
+    val field = fields.firstOrNull { it.label == "Block 5 Spool Weight" } ?: return 0
+    val digits = field.value.filter { it.isDigit() }
+    return digits.toIntOrNull() ?: 0
 }
 
 private fun deriveKeys(uid: ByteArray, info: ByteArray): List<ByteArray> {

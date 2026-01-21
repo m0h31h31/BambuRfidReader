@@ -1,0 +1,57 @@
+<resources>
+    <string name="app_name">Bambu RFID 读取器</string>
+    <string name="app_title">Bambu RFID 读取器</string>
+    <string name="action_inventory">库存</string>
+    <string name="action_voice_settings">语音设置</string>
+    <string name="action_back">返回</string>
+    <string name="action_delete">删除</string>
+    <string name="action_cancel">取消</string>
+    <string name="action_backup_db">备份数据库</string>
+    <string name="action_import_db">导入数据库</string>
+    <string name="action_boost_open_bambu">助力：打开 Bambu APP</string>
+
+    <string name="voice_status_prefix">语音%1$s</string>
+    <string name="voice_status_engine_not_ready">引擎未就绪</string>
+    <string name="voice_status_language_unavailable">语言不可用</string>
+    <string name="voice_status_on">已开启</string>
+    <string name="voice_status_off">已关闭</string>
+
+    <string name="label_material_type">耗材类型</string>
+    <string name="label_color_name">颜色名</string>
+    <string name="label_color_code">颜色代码</string>
+    <string name="label_unknown">未知</string>
+    <string name="label_remaining">耗材余量</string>
+    <string name="label_other_info">其他信息</string>
+    <string name="unit_grams">克</string>
+
+    <string name="message_tray_uid_missing">未读取到托盘UID，无法保存余量</string>
+    <string name="message_weight_missing">未读取到耗材重量，无法设置克重</string>
+    <string name="message_weight_missing_short">未读取重量</string>
+
+    <string name="format_percent">%1$d%%</string>
+    <string name="format_total_weight">总重量 %1$d 克</string>
+
+    <string name="inventory_title">耗材库存</string>
+    <string name="inventory_search_placeholder">搜索任意字段</string>
+    <string name="inventory_empty">暂无库存数据</string>
+    <string name="inventory_unknown_material">未知耗材</string>
+    <string name="inventory_unknown_color">未知颜色</string>
+    <string name="inventory_color_code_format">色号 %1$s</string>
+    <string name="inventory_color_code_unknown">色号 未知</string>
+
+    <string name="dialog_delete_title">确认删除</string>
+    <string name="dialog_delete_message">确定要删除这条库存记录吗？</string>
+
+    <string name="content_logo">标志</string>
+
+    <string name="status_device_no_nfc">设备不支持 NFC</string>
+    <string name="status_nfc_disabled">NFC 未开启，请在系统设置中启用</string>
+    <string name="status_waiting_tag">等待RFID标签</string>
+    <string name="status_uid_missing">未读取到 UID</string>
+    <string name="status_read_success">读取成功</string>
+    <string name="status_read_partial">部分读取成功</string>
+    <string name="status_read_failed">读取失败</string>
+
+    <string name="error_mifare_unsupported">不支持 MIFARE Classic</string>
+    <string name="error_read_exception">读取异常</string>
+</resources>

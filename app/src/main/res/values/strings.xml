@@ -1,3 +1,57 @@
 <resources>
-    <string name="app_name">BambuRfidReader</string>
+    <string name="app_name">Bambu RFID Reader</string>
+    <string name="app_title">Bambu RFID Reader</string>
+    <string name="action_inventory">Inventory</string>
+    <string name="action_voice_settings">Voice Settings</string>
+    <string name="action_back">Back</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_backup_db">Backup Database</string>
+    <string name="action_import_db">Import Database</string>
+    <string name="action_boost_open_bambu">Boost: Open Bambu App</string>
+
+    <string name="voice_status_prefix">Voice %1$s</string>
+    <string name="voice_status_engine_not_ready">Engine not ready</string>
+    <string name="voice_status_language_unavailable">Language unavailable</string>
+    <string name="voice_status_on">On</string>
+    <string name="voice_status_off">Off</string>
+
+    <string name="label_material_type">Material Type</string>
+    <string name="label_color_name">Color Name</string>
+    <string name="label_color_code">Color Code</string>
+    <string name="label_unknown">Unknown</string>
+    <string name="label_remaining">Remaining</string>
+    <string name="label_other_info">Other Info</string>
+    <string name="unit_grams">g</string>
+
+    <string name="message_tray_uid_missing">Tray UID missing, cannot save remaining.</string>
+    <string name="message_weight_missing">Material weight missing, cannot set grams.</string>
+    <string name="message_weight_missing_short">Weight missing</string>
+
+    <string name="format_percent">%1$d%%</string>
+    <string name="format_total_weight">Total %1$d g</string>
+
+    <string name="inventory_title">Inventory</string>
+    <string name="inventory_search_placeholder">Search any field</string>
+    <string name="inventory_empty">No inventory data.</string>
+    <string name="inventory_unknown_material">Unknown material</string>
+    <string name="inventory_unknown_color">Unknown color</string>
+    <string name="inventory_color_code_format">Code %1$s</string>
+    <string name="inventory_color_code_unknown">Code unknown</string>
+
+    <string name="dialog_delete_title">Confirm Delete</string>
+    <string name="dialog_delete_message">Delete this inventory item?</string>
+
+    <string name="content_logo">Logo</string>
+
+    <string name="status_device_no_nfc">This device does not support NFC.</string>
+    <string name="status_nfc_disabled">NFC is off. Enable it in system settings.</string>
+    <string name="status_waiting_tag">Waiting for RFID tag</string>
+    <string name="status_uid_missing">UID not found</string>
+    <string name="status_read_success">Read success</string>
+    <string name="status_read_partial">Partial read</string>
+    <string name="status_read_failed">Read failed</string>
+
+    <string name="error_mifare_unsupported">MIFARE Classic not supported</string>
+    <string name="error_read_exception">Read exception</string>
 </resources>
