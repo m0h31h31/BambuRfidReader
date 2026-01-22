@@ -1,0 +1,485 @@
+package com.m0h31h31.bamburfidreader.ui.screens
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import android.widget.Toast
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.rememberCoroutineScope
+import com.m0h31h31.bamburfidreader.NfcUiState
+import com.m0h31h31.bamburfidreader.R
+import com.m0h31h31.bamburfidreader.LogCollector
+import com.m0h31h31.bamburfidreader.logDebug
+import com.m0h31h31.bamburfidreader.openTtsSettings
+import com.m0h31h31.bamburfidreader.ui.components.ColorSwatch
+import com.m0h31h31.bamburfidreader.ui.components.InfoLine
+import com.m0h31h31.bamburfidreader.ui.theme.BambuRfidReaderTheme
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
+
+@Composable
+fun ReaderScreen(
+    state: NfcUiState,
+    voiceEnabled: Boolean,
+    ttsReady: Boolean,
+    ttsLanguageReady: Boolean,
+    onVoiceEnabledChange: (Boolean) -> Unit,
+    onRemainingChange: (String, Float, Int?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    var logoTapCount by remember { mutableStateOf(0) }
+    var logoLastTapAt by remember { mutableStateOf(0L) }
+    Surface(
+        modifier = modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+                    .padding(bottom = 0.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.tab_reader),
+                    style = MaterialTheme.typography.titleLarge
+                )
+                if (state.status.isNotBlank()) {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(15.dp,5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = state.status,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f)
+                            )
+                            val voiceHint = when {
+                                voiceEnabled && !ttsReady -> stringResource(
+                                    R.string.voice_status_engine_not_ready
+                                )
+
+                                voiceEnabled && !ttsLanguageReady -> stringResource(
+                                    R.string.voice_status_language_unavailable
+                                )
+
+                                voiceEnabled -> stringResource(R.string.voice_status_on)
+                                else -> stringResource(R.string.voice_status_off)
+                            }
+                            val canOpenTtsSettings =
+                                voiceEnabled && (!ttsReady || !ttsLanguageReady)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Switch(
+                                    checked = voiceEnabled,
+                                    onCheckedChange = onVoiceEnabledChange,
+                                    modifier = Modifier.scale(0.8f),
+                                )
+                                Text(
+                                    text = if (canOpenTtsSettings) {
+                                        stringResource(R.string.action_voice_settings)
+                                    } else {
+                                        stringResource(R.string.voice_status_prefix, voiceHint)
+                                    },
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        color = if (canOpenTtsSettings) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                        textDecoration = if (canOpenTtsSettings) {
+                                            TextDecoration.Underline
+                                        } else {
+                                            null
+                                        }
+                                    ),
+                                    modifier = if (canOpenTtsSettings) {
+                                        Modifier
+                                            .padding(start = 6.dp)
+                                            .clickable {
+                                                val opened = openTtsSettings(context)
+                                                if (!opened) {
+                                                    logDebug("无法打开语音设置")
+                                                }
+                                            }
+                                    } else {
+                                        Modifier.padding(start = 6.dp)
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                val trayUidAvailable = state.trayUidHex.isNotBlank()
+                val totalWeight = state.totalWeightGrams
+                val hasWeight = totalWeight > 0
+                val derivedGrams = if (hasWeight) {
+                    (totalWeight * state.remainingPercent / 100.0).roundToInt()
+                } else {
+                    0
+                }
+                var gramsValue by remember(
+                    state.trayUidHex,
+                    state.remainingPercent,
+                    state.totalWeightGrams
+                ) {
+                    mutableStateOf(derivedGrams.toFloat())
+                }
+                var gramsText by remember(
+                    state.trayUidHex,
+                    state.remainingPercent,
+                    state.totalWeightGrams
+                ) {
+                    mutableStateOf(if (hasWeight) derivedGrams.toString() else "")
+                }
+                val gramsInt = gramsValue.roundToInt().coerceIn(0, totalWeight.coerceAtLeast(0))
+                val percentValue = if (hasWeight) {
+                    ((gramsInt * 100f / totalWeight) * 10).roundToInt() / 10f
+                } else {
+                    state.remainingPercent.toFloat()
+                }
+                
+                // 添加防抖机制
+                val scope = rememberCoroutineScope()
+                val debounceJob = remember {
+                    mutableStateOf<Job?>(null)
+                }
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            ColorSwatch(
+                                colorValues = state.displayColors,
+                                colorType = state.displayColorType,
+                                modifier = Modifier
+                                    .size(120.dp)
+                                    .clickable {
+                                        val now = System.currentTimeMillis()
+                                        if (now - logoLastTapAt > 1500) {
+                                            logoTapCount = 0
+                                        }
+                                        logoLastTapAt = now
+                                        logoTapCount += 1
+                                        if (logoTapCount >= 5) {
+                                            logoTapCount = 0
+                                            val result = LogCollector.packageLogs(context)
+                                            logDebug(result)
+                                            Toast
+                                                .makeText(context, result, Toast.LENGTH_SHORT)
+                                                .show()
+                                        }
+                                    }
+                            )
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(start = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = state.displayType.ifBlank {
+                                        stringResource(R.string.label_unknown)
+                                    },
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    modifier = modifier.padding(3.dp),
+                                    fontSize = 18.sp,
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = state.displayColorName.ifBlank {
+                                            stringResource(R.string.label_unknown)
+                                        },
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = modifier.padding(3.dp)
+                                    )
+                                    Text(
+                                        text = "-",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = modifier.padding(3.dp)
+                                    )
+                                    Text(
+                                        text = state.displayColorCode.ifBlank {
+                                            stringResource(R.string.label_unknown)
+                                        },
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = FontWeight.SemiBold,
+                                                modifier = modifier.padding(3.dp)
+                                    )
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    TextButton(
+                                        onClick = {
+                                            if (trayUidAvailable && hasWeight) {
+                                                val next = (gramsInt - 1).coerceAtLeast(0)
+                                                gramsValue = next.toFloat()
+                                                gramsText = next.toString()
+                                                onRemainingChange(
+                                                    state.trayUidHex,
+                                                    (next * 100f / totalWeight),
+                                                    next
+                                                )
+                                            }
+                                        },
+                                        enabled = trayUidAvailable && hasWeight
+                                    ) {
+                                        Text(text = "-")
+                                    }
+                                    TextField(
+                                        value = gramsText,
+                                        onValueChange = { text ->
+                                            gramsText = text.filter { it.isDigit() }
+                                            if (trayUidAvailable && hasWeight) {
+                                                val next = gramsText.toIntOrNull()
+                                                    ?.coerceIn(0, totalWeight) ?: 0
+                                                gramsValue = next.toFloat()
+                                                
+                                                // 添加防抖机制，500毫秒内无输入变化时自动存储
+                                                debounceJob.value?.cancel()
+                                                debounceJob.value = scope.launch {
+                                                    delay(500)
+                                                    val finalGrams = gramsText.toIntOrNull()
+                                                        ?.coerceIn(0, totalWeight) ?: 0
+                                                    val finalPercent = if (totalWeight > 0) {
+                                                        ((finalGrams * 100f / totalWeight) * 10).roundToInt() / 10f
+                                                    } else {
+                                                        0f
+                                                    }
+                                                    onRemainingChange(state.trayUidHex, finalPercent, finalGrams)
+                                                }
+                                            }
+                                        },
+                                        singleLine = true,
+                                        enabled = trayUidAvailable && hasWeight,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                    )
+                                    Text(
+                                        text = if (hasWeight) {
+                                            stringResource(R.string.unit_grams)
+                                        } else {
+                                            stringResource(R.string.message_weight_missing_short)
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    TextButton(
+                                        onClick = {
+                                            if (trayUidAvailable && hasWeight) {
+                                                val next = (gramsInt + 1)
+                                                    .coerceAtMost(totalWeight)
+                                                gramsValue = next.toFloat()
+                                                gramsText = next.toString()
+                                                onRemainingChange(
+                                                    state.trayUidHex,
+                                                    (next * 100f / totalWeight),
+                                                    next
+                                                )
+                                            }
+                                        },
+                                        enabled = trayUidAvailable && hasWeight
+                                    ) {
+                                        Text(text = "+")
+                                    }
+                                }
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Slider(
+                                value = gramsValue,
+                                onValueChange = { value ->
+                                    if (trayUidAvailable && hasWeight) {
+                                        val next = value.roundToInt().coerceIn(0, totalWeight)
+                                        gramsValue = next.toFloat()
+                                        gramsText = next.toString()
+                                    }
+                                },
+                                valueRange = 0f..(if (hasWeight) totalWeight.toFloat() else 1f),
+                                enabled = trayUidAvailable && hasWeight,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(30.dp).padding(0.dp,3.dp),
+                                onValueChangeFinished = {
+                                    if (trayUidAvailable && hasWeight) {
+                                        // 使用最终的gramsValue计算准确的百分比和克重
+                                        val finalGrams = gramsValue.roundToInt().coerceIn(0, totalWeight)
+                                        val finalPercent = if (totalWeight > 0) {
+                                            ((finalGrams * 100f / totalWeight) * 10).roundToInt() / 10f
+                                        } else {
+                                            0f
+                                        }
+                                        onRemainingChange(state.trayUidHex, finalPercent, finalGrams)
+                                    }
+                                }
+                            )
+
+                            Text(
+                                text = String.format("%.1f%%", percentValue),
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(start = 8.dp)
+                            )
+                        }
+//                        if (!trayUidAvailable) {
+//                            Text(
+//                                text = stringResource(R.string.message_tray_uid_missing),
+//                                style = MaterialTheme.typography.bodySmall,
+//                                color = MaterialTheme.colorScheme.onSurfaceVariant
+//                            )
+//                        } else if (!hasWeight) {
+//                            Text(
+//                                text = stringResource(R.string.message_weight_missing),
+//                                style = MaterialTheme.typography.bodySmall,
+//                                color = MaterialTheme.colorScheme.onSurfaceVariant
+//                            )
+//                        } else {
+//                            Text(
+//                                text = stringResource(
+//                                    R.string.format_total_weight,
+//                                    totalWeight
+//                                ),
+//                                style = MaterialTheme.typography.bodySmall,
+//                                color = MaterialTheme.colorScheme.onSurfaceVariant
+//                            )
+//                        }
+                    }
+                }
+
+//                if (state.secondaryFields.isNotEmpty()) {
+                if (true) {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.label_other_info),
+                                    style = MaterialTheme.typography.titleSmall
+                                )
+                                state.secondaryFields.forEach { field ->
+                                    InfoLine(
+                                        label = field.label,
+                                        value = field.value,
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                            }
+                            androidx.compose.foundation.Image(
+                                painter = painterResource(id = R.drawable.logo_mark),
+                                contentDescription = stringResource(R.string.content_logo),
+                                modifier = Modifier.size(80.dp, 250.dp)
+                            )
+                        }
+                    }
+                }
+            }
+//            BoostFooter(
+//                modifier = Modifier
+//                    .align(Alignment.BottomCenter)
+//                    .padding(horizontal = 2.dp, vertical = 0.dp)
+//            )
+        }
+    }
+}
+
+
+@Composable
+private fun BoostFooter(modifier: Modifier = Modifier) {
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+    val boostLink =
+        "bambulab://bbl/design/model/detail?design_id=2020787&instance_id=2253290&appSharePlatform=copy"
+    TextButton(
+        onClick = { uriHandler.openUri(boostLink) },
+        modifier = modifier.padding(0.dp)
+    ) {
+        Text(text = stringResource(R.string.action_boost_open_bambu))
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun PreviewReaderScreen() {
+    BambuRfidReaderTheme {
+        ReaderScreen(
+            state = NfcUiState(
+                status = "Read success",
+                displayType = "Support For PLA-PETG",
+                displayColorName = "Orange",
+                displayColorCode = "10300",
+                displayColorType = "单色",
+                displayColors = listOf("#FF6A13FF"),
+                trayUidHex = "AABBCCDDEEFF00112233445566778899",
+                remainingPercent = 75.0f,
+                totalWeightGrams = 1000
+            ),
+            voiceEnabled = false,
+            ttsReady = true,
+            ttsLanguageReady = true,
+            onVoiceEnabledChange = {},
+            onRemainingChange = { _, _, _ -> }
+)
+    }
+}

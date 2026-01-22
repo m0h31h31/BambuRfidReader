@@ -9,6 +9,10 @@
     <string name="action_backup_db">Backup Database</string>
     <string name="action_import_db">Import Database</string>
     <string name="action_boost_open_bambu">Boost: Open Bambu App</string>
+    <string name="tab_reader">Scan</string>
+    <string name="tab_inventory">Inventory</string>
+    <string name="tab_tag">Tag</string>
+    <string name="tab_misc">Misc</string>
 
     <string name="voice_status_prefix">Voice %1$s</string>
     <string name="voice_status_engine_not_ready">Engine not ready</string>
@@ -29,6 +33,7 @@
     <string name="message_weight_missing_short">Weight missing</string>
 
     <string name="format_percent">%1$d%%</string>
+    <string name="format_percent_decimal">%.1f%%</string>
     <string name="format_total_weight">Total %1$d g</string>
 
     <string name="inventory_title">Inventory</string>

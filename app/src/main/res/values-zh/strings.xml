@@ -9,6 +9,10 @@
     <string name="action_backup_db">备份数据库</string>
     <string name="action_import_db">导入数据库</string>
     <string name="action_boost_open_bambu">助力：打开 Bambu APP</string>
+    <string name="tab_reader">识别</string>
+    <string name="tab_inventory">库存</string>
+    <string name="tab_tag">标签</string>
+    <string name="tab_misc">杂项</string>
 
     <string name="voice_status_prefix">语音%1$s</string>
     <string name="voice_status_engine_not_ready">引擎未就绪</string>
@@ -29,6 +33,7 @@
     <string name="message_weight_missing_short">未读取重量</string>
 
     <string name="format_percent">%1$d%%</string>
+    <string name="format_percent_decimal">%.1f%%</string>
     <string name="format_total_weight">总重量 %1$d 克</string>
 
     <string name="inventory_title">耗材库存</string>
