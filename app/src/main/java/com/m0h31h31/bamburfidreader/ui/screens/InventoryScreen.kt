@@ -125,7 +125,7 @@ fun InventoryScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 16.dp),
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
