@@ -29,6 +29,7 @@ fun MiscScreen(
     onBackupDatabase: () -> String = { "" },
     onImportDatabase: () -> String = { "" },
     onResetDatabase: () -> String = { "" },
+    appConfigMessage: String = "",
     modifier: Modifier = Modifier
 ) {
     val uriHandler = LocalUriHandler.current
@@ -49,6 +50,13 @@ fun MiscScreen(
                 text = stringResource(R.string.tab_misc),
                 style = MaterialTheme.typography.titleLarge
             )
+            if (appConfigMessage.isNotBlank()) {
+                Text(
+                    text = appConfigMessage,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
             if (message.isNotBlank()) {
                 Text(
                     text = message,

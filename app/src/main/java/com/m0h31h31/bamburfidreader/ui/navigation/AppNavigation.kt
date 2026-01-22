@@ -20,13 +20,16 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.m0h31h31.bamburfidreader.FilamentDbHelper
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import com.m0h31h31.bamburfidreader.NfcUiState
 import com.m0h31h31.bamburfidreader.R
+import com.m0h31h31.bamburfidreader.FilamentDbHelper
 import com.m0h31h31.bamburfidreader.ui.screens.InventoryScreen
-import com.m0h31h31.bamburfidreader.ui.screens.MiscScreen
 import com.m0h31h31.bamburfidreader.ui.screens.ReaderScreen
 import com.m0h31h31.bamburfidreader.ui.screens.TagScreen
+import com.m0h31h31.bamburfidreader.ui.screens.MiscScreen
+import com.m0h31h31.bamburfidreader.utils.ConfigManager
 
 private data class TopDestination(
     val route: String,
@@ -121,12 +124,15 @@ fun AppNavigation(
                 TagScreen()
             }
             composable("misc") {
-                MiscScreen(
-                    onBackupDatabase = onBackupDatabase,
-                    onImportDatabase = onImportDatabase,
-                    onResetDatabase = onResetDatabase
-                )
-            }
+                            val context = LocalContext.current
+                            val appConfigMessage = ConfigManager.getAppConfigMessage(context)
+                            MiscScreen(
+                                onBackupDatabase = onBackupDatabase,
+                                onImportDatabase = onImportDatabase,
+                                onResetDatabase = onResetDatabase,
+                                appConfigMessage = appConfigMessage
+                            )
+                        }
         }
     }
 }

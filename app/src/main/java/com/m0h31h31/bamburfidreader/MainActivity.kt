@@ -21,6 +21,7 @@ import androidx.compose.runtime.setValue
 import com.m0h31h31.bamburfidreader.ui.navigation.AppNavigation
 import com.m0h31h31.bamburfidreader.ui.theme.BambuRfidReaderTheme
 import com.m0h31h31.bamburfidreader.util.normalizeColorValue
+import com.m0h31h31.bamburfidreader.utils.ConfigManager
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
@@ -34,8 +35,10 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
 import kotlin.math.ceil
-import kotlin.math.roundToInt
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -217,6 +220,31 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * 检查并更新配置文件
+     */
+    private fun checkAndUpdateConfig() {
+        GlobalScope.launch(Dispatchers.IO) {
+            com.m0h31h31.bamburfidreader.utils.ConfigManager.checkAndUpdateConfig(
+                this@MainActivity,
+                object : kotlin.jvm.functions.Function2<String, kotlin.jvm.functions.Function0<Unit>, Unit> {
+                    override fun invoke(message: String, updateAction: kotlin.jvm.functions.Function0<Unit>) {
+                        runOnUiThread {
+                            android.app.AlertDialog.Builder(this@MainActivity)
+                                .setTitle("配置更新")
+                                .setMessage(message)
+                                .setPositiveButton("确认") { _, _ ->
+                                    updateAction.invoke()
+                                }
+                                .setNegativeButton("取消", null)
+                                .show()
+                        }
+                    }
+                }
+            )
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -230,6 +258,10 @@ class MainActivity : ComponentActivity() {
         uiState = NfcUiState(status = initialStatus())
         logEvent("应用启动")
         logDeviceInfo()
+        
+        // 检查并更新配置文件
+        checkAndUpdateConfig()
+        
         setContent {
             BambuRfidReaderTheme {
                 AppNavigation(
@@ -1717,6 +1749,7 @@ class FilamentDbHelper(context: Context) :
             arrayOf(trayUid)
         )
     }
+
 }
 
 private fun extractWeightGrams(fields: List<ParsedField>): Int {
