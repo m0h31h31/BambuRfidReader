@@ -46,9 +46,11 @@ private const val KEY_LENGTH_BYTES = 6
 private const val SECTOR_COUNT = 16
 private const val LOG_TAG = "BambuRfidReader"
 private const val FILAMENT_JSON_NAME = "filaments_color_codes.json"
+private const val FILAMENTS_TYPE_MAPPING_FILE = "filaments_type_mapping.json"
 private const val FILAMENT_DB_NAME = "filaments.db"
-private const val FILAMENT_DB_VERSION = 8
+private const val FILAMENT_DB_VERSION = 10
 private const val FILAMENT_TABLE = "filaments"
+private const val FILAMENT_TYPE_MAPPING_TABLE = "filament_type_mapping"
 private const val FILAMENT_META_TABLE = "meta_v2"
 private const val FILAMENT_META_KEY_LAST_MODIFIED = "filaments_last_modified"
 private const val FILAMENT_META_KEY_LOCALE = "filaments_locale"
@@ -230,14 +232,28 @@ class MainActivity : ComponentActivity() {
                 object : kotlin.jvm.functions.Function2<String, kotlin.jvm.functions.Function0<Unit>, Unit> {
                     override fun invoke(message: String, updateAction: kotlin.jvm.functions.Function0<Unit>) {
                         runOnUiThread {
-                            android.app.AlertDialog.Builder(this@MainActivity)
+                            val builder = android.app.AlertDialog.Builder(this@MainActivity)
                                 .setTitle("配置更新")
                                 .setMessage(message)
-                                .setPositiveButton("确认") { _, _ ->
+                            
+                            // 检查是否是版本更新提示
+                            if (message == "版本更新请到原地址下载") {
+                                // 版本更新提示只设置取消按钮
+                                builder.setNegativeButton("取消", null)
+                            } else {
+                                // 颜色配置更新需要确认按钮
+                                builder.setPositiveButton("确认") { _, _ ->
                                     updateAction.invoke()
+                                    // 提示更新结果
+                                    android.app.AlertDialog.Builder(this@MainActivity)
+                                        .setTitle("更新结果")
+                                        .setMessage("颜色配置更新成功")
+                                        .setPositiveButton("确定", null)
+                                        .show()
                                 }
                                 .setNegativeButton("取消", null)
-                                .show()
+                            }
+                            builder.show()
                         }
                     }
                 }
@@ -762,6 +778,7 @@ class MainActivity : ComponentActivity() {
                     val stored = dbHelper.getTrayRemainingPercent(db, trayUidHex)
                     val storedGrams = dbHelper.getTrayRemainingGrams(db, trayUidHex)
                     remainingPercent = stored ?: DEFAULT_REMAINING_PERCENT.toFloat()
+                    // 对于新刷的耗材，使用从NFC标签中读取的totalWeightGrams作为初始克重
                     remainingGrams = storedGrams ?: 0
                     dbHelper.upsertTrayRemaining(db, trayUidHex, remainingPercent, remainingGrams)
                 }
@@ -780,6 +797,18 @@ class MainActivity : ComponentActivity() {
             }
             val parsedBlockData = parseBlocks(blockData, block12, block16)
             val totalWeightGrams = extractWeightGrams(parsedBlockData.fields)
+            // 对于新刷的耗材，如果克重为0且从NFC标签中读取到了克重，则使用NFC读取的克重
+            if (remainingGrams == 0 && totalWeightGrams > 0) {
+                remainingGrams = totalWeightGrams
+                // 更新数据库中的克重值
+                if (trayUidHex.isNotBlank()) {
+                    val dbHelper = filamentDbHelper
+                    val db = dbHelper?.writableDatabase
+                    if (db != null) {
+                        dbHelper.upsertTrayRemaining(db, trayUidHex, remainingPercent, remainingGrams)
+                    }
+                }
+            }
             val displayData = buildDisplayData(parsedBlockData, filamentDbHelper)
             parsedBlockData.fields.forEach { field ->
                 logDebug("解析字段: ${field.label}=${field.value}")
@@ -798,17 +827,18 @@ class MainActivity : ComponentActivity() {
                 val dbHelper = filamentDbHelper
                 val db = dbHelper?.writableDatabase
                 if (db != null) {
+                    // 获取filament_id
+                    val filamentId = dbHelper.getFilamentId(
+                        db,
+                        parsedBlockData.materialId,
+                        displayData.colorCode
+                    )
                     dbHelper.upsertTrayInventory(
                         db,
                         trayUidHex,
                         remainingPercent,
                         remainingGrams,
-                        parsedBlockData.materialId,
-                        displayData.type,
-                        displayData.colorName,
-                        displayData.colorCode,
-                        displayData.colorType,
-                        displayData.colorValues
+                        filamentId
                     )
                 }
             }
@@ -1276,29 +1306,49 @@ private data class FilamentJsonSource(
     val lastModified: Long
 )
 
-private fun syncFilamentDatabase(context: Context, dbHelper: FilamentDbHelper) {
-    val source = readFilamentJsonFromExternal(context) ?: return
-    logDebug("配置文件更新时间: ${source.lastModified}")
-    val cacheFile = File(context.cacheDir, FILAMENT_JSON_NAME)
+private data class FilamentTypeMappingEntry(
+    val baseType: String,
+    val specificType: String
+)
+
+internal fun syncFilamentDatabase(context: Context, dbHelper: FilamentDbHelper) {
+    // 同步filaments_color_codes.json
+    val colorSource = readFilamentJsonFromExternal(context) ?: return
+    logDebug("配置文件更新时间: ${colorSource.lastModified}")
+    val colorCacheFile = File(context.cacheDir, FILAMENT_JSON_NAME)
     try {
-        cacheFile.writeText(source.jsonText, Charsets.UTF_8)
+        colorCacheFile.writeText(colorSource.jsonText, Charsets.UTF_8)
+    } catch (_: IOException) {
+        // Ignore cache write failures.
+    }
+
+    // 同步filaments_type_mapping.json
+    val typeSource = readFilamentTypeMappingFromExternal(context) ?: return
+    logDebug("耗材类型映射文件更新时间: ${typeSource.lastModified}")
+    val typeCacheFile = File(context.cacheDir, FILAMENTS_TYPE_MAPPING_FILE)
+    try {
+        typeCacheFile.writeText(typeSource.jsonText, Charsets.UTF_8)
     } catch (_: IOException) {
         // Ignore cache write failures.
     }
 
     val db = dbHelper.writableDatabase
-    val lastModifiedValue = source.lastModified.toString()
-    val storedVersion = dbHelper.getMetaValue(db, FILAMENT_META_KEY_LAST_MODIFIED)
+    val colorLastModifiedValue = colorSource.lastModified.toString()
+    val storedColorVersion = dbHelper.getMetaValue(db, FILAMENT_META_KEY_LAST_MODIFIED)
     val currentLocale = Locale.getDefault().language.lowercase(Locale.US)
     val storedLocale = dbHelper.getMetaValue(db, FILAMENT_META_KEY_LOCALE)
-    if (storedVersion == lastModifiedValue && storedLocale == currentLocale) {
+    
+    // 检查是否需要更新
+    if (storedColorVersion == colorLastModifiedValue && storedLocale == currentLocale) {
         logDebug("配置文件未变化，跳过更新")
         return
     }
 
-    val entries = parseFilamentEntries(source.jsonText)
+    val entries = parseFilamentEntries(colorSource.jsonText)
+    val typeEntries = parseFilamentTypeMappingEntries(typeSource.jsonText)
     db.beginTransaction()
     try {
+        // 清空并重新写入filaments表
         db.delete(FILAMENT_TABLE, null, null)
         val values = ContentValues()
         entries.forEach { entry ->
@@ -1317,10 +1367,25 @@ private fun syncFilamentDatabase(context: Context, dbHelper: FilamentDbHelper) {
                 SQLiteDatabase.CONFLICT_REPLACE
             )
         }
-        dbHelper.setMetaValue(db, FILAMENT_META_KEY_LAST_MODIFIED, lastModifiedValue)
+        
+        // 清空并重新写入filament_type_mapping表
+        db.delete(FILAMENT_TYPE_MAPPING_TABLE, null, null)
+        typeEntries.forEach { entry ->
+            values.clear()
+            values.put("base_type", entry.baseType)
+            values.put("specific_type", entry.specificType)
+            db.insertWithOnConflict(
+                FILAMENT_TYPE_MAPPING_TABLE,
+                null,
+                values,
+                SQLiteDatabase.CONFLICT_REPLACE
+            )
+        }
+        
+        dbHelper.setMetaValue(db, FILAMENT_META_KEY_LAST_MODIFIED, colorLastModifiedValue)
         dbHelper.setMetaValue(db, FILAMENT_META_KEY_LOCALE, currentLocale)
         db.setTransactionSuccessful()
-        logDebug("配置数据写入完成: ${entries.size}")
+        logDebug("配置数据写入完成: ${entries.size} 个颜色配置, ${typeEntries.size} 个类型映射")
     } finally {
         db.endTransaction()
     }
@@ -1332,6 +1397,29 @@ private fun readFilamentJsonFromExternal(context: Context): FilamentJsonSource? 
     if (!externalFile.exists()) {
         try {
             context.assets.open(FILAMENT_JSON_NAME).use { input ->
+                externalFile.outputStream().use { output -> input.copyTo(output) }
+            }
+        } catch (_: IOException) {
+            return null
+        }
+    }
+    if (!externalFile.exists()) {
+        return null
+    }
+    val jsonText = try {
+        externalFile.readText(Charsets.UTF_8)
+    } catch (_: IOException) {
+        return null
+    }
+    return FilamentJsonSource(jsonText, externalFile.lastModified())
+}
+
+private fun readFilamentTypeMappingFromExternal(context: Context): FilamentJsonSource? {
+    val externalDir = context.getExternalFilesDir(null) ?: return null
+    val externalFile = File(externalDir, FILAMENTS_TYPE_MAPPING_FILE)
+    if (!externalFile.exists()) {
+        try {
+            context.assets.open(FILAMENTS_TYPE_MAPPING_FILE).use { input ->
                 externalFile.outputStream().use { output -> input.copyTo(output) }
             }
         } catch (_: IOException) {
@@ -1386,6 +1474,34 @@ private fun parseFilamentEntries(jsonText: String): List<FilamentColorEntry> {
                 colorCount = colorValues.size
             )
         )
+    }
+    return entries
+}
+
+private fun parseFilamentTypeMappingEntries(jsonText: String): List<FilamentTypeMappingEntry> {
+    val root = try {
+        JSONObject(jsonText)
+    } catch (_: Exception) {
+        return emptyList()
+    }
+    val entries = ArrayList<FilamentTypeMappingEntry>()
+    val keys = root.keys()
+    while (keys.hasNext()) {
+        val baseType = keys.next()
+        val specificTypes = root.optJSONArray(baseType)
+        if (specificTypes != null) {
+            for (i in 0 until specificTypes.length()) {
+                val specificType = specificTypes.optString(i)
+                if (specificType.isNotBlank()) {
+                    entries.add(
+                        FilamentTypeMappingEntry(
+                            baseType = baseType,
+                            specificType = specificType
+                        )
+                    )
+                }
+            }
+        }
     }
     return entries
 }
@@ -1481,6 +1597,7 @@ class FilamentDbHelper(context: Context) :
         db.execSQL(
             """
             CREATE TABLE IF NOT EXISTS $FILAMENT_TABLE (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
                 fila_id TEXT NOT NULL,
                 fila_color_code TEXT NOT NULL,
                 fila_color_type TEXT,
@@ -1488,7 +1605,7 @@ class FilamentDbHelper(context: Context) :
                 color_name_zh TEXT,
                 color_values TEXT,
                 color_count INTEGER,
-                PRIMARY KEY (fila_id, fila_color_code)
+                UNIQUE (fila_id, fila_color_code)
             )
             """.trimIndent()
         )
@@ -1506,17 +1623,27 @@ class FilamentDbHelper(context: Context) :
         db.execSQL(
             """
             CREATE TABLE IF NOT EXISTS "$TRAY_UID_TABLE" (
-                tray_uid TEXT PRIMARY KEY,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tray_uid TEXT UNIQUE NOT NULL,
                 remaining_percent REAL NOT NULL,
                 remaining_grams INTEGER,
-                material_id TEXT,
-                material_type TEXT,
-                color_name TEXT,
-                color_code TEXT,
-                color_type TEXT,
-                color_values TEXT
+                filament_id INTEGER,
+                FOREIGN KEY (filament_id) REFERENCES $FILAMENT_TABLE(id)
             )
             """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS $FILAMENT_TYPE_MAPPING_TABLE (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                base_type TEXT NOT NULL,
+                specific_type TEXT NOT NULL,
+                UNIQUE (base_type, specific_type)
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS idx_filament_type_mapping_base_type ON $FILAMENT_TYPE_MAPPING_TABLE (base_type)"
         )
     }
 
@@ -1549,6 +1676,74 @@ class FilamentDbHelper(context: Context) :
                     value TEXT
                 )
                 """.trimIndent()
+            )
+        }
+        if (oldVersion < 9) {
+            // 为filament表添加id字段
+            val tempFilamentTable = "${FILAMENT_TABLE}_temp"
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS $tempFilamentTable (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    fila_id TEXT NOT NULL,
+                    fila_color_code TEXT NOT NULL,
+                    fila_color_type TEXT,
+                    fila_type TEXT,
+                    color_name_zh TEXT,
+                    color_values TEXT,
+                    color_count INTEGER,
+                    UNIQUE (fila_id, fila_color_code)
+                )
+                """.trimIndent()
+            )
+            db.execSQL(
+                "INSERT INTO $tempFilamentTable (fila_id, fila_color_code, fila_color_type, fila_type, color_name_zh, color_values, color_count) " +
+                "SELECT fila_id, fila_color_code, fila_color_type, fila_type, color_name_zh, color_values, color_count FROM $FILAMENT_TABLE"
+            )
+            db.execSQL("DROP TABLE IF EXISTS $FILAMENT_TABLE")
+            db.execSQL("ALTER TABLE $tempFilamentTable RENAME TO $FILAMENT_TABLE")
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS idx_filaments_fila_id_color ON $FILAMENT_TABLE (fila_id, color_count)"
+            )
+            
+            // 为filament_inventory表添加id和filament_id字段
+            val tempInventoryTable = "${TRAY_UID_TABLE}_temp"
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS "$tempInventoryTable" (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tray_uid TEXT UNIQUE NOT NULL,
+                    remaining_percent REAL NOT NULL,
+                    remaining_grams INTEGER,
+                    filament_id INTEGER,
+                    FOREIGN KEY (filament_id) REFERENCES $FILAMENT_TABLE(id)
+                )
+                """.trimIndent()
+            )
+            // 这里需要处理数据迁移，将旧表中的数据迁移到新表
+            // 由于我们需要通过fila_id和color_code关联到filament表的id，这里需要使用临时方案
+            // 实际应用中，可能需要更复杂的数据迁移逻辑
+            db.execSQL(
+                "INSERT INTO \"$tempInventoryTable\" (tray_uid, remaining_percent, remaining_grams) " +
+                "SELECT tray_uid, remaining_percent, remaining_grams FROM \"$TRAY_UID_TABLE\""
+            )
+            db.execSQL("DROP TABLE IF EXISTS \"$TRAY_UID_TABLE\"")
+            db.execSQL("ALTER TABLE \"$tempInventoryTable\" RENAME TO \"$TRAY_UID_TABLE\"")
+        }
+        if (oldVersion < 10) {
+            // 创建filament_type_mapping表
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS $FILAMENT_TYPE_MAPPING_TABLE (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    base_type TEXT NOT NULL,
+                    specific_type TEXT NOT NULL,
+                    UNIQUE (base_type, specific_type)
+                )
+                """.trimIndent()
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS idx_filament_type_mapping_base_type ON $FILAMENT_TYPE_MAPPING_TABLE (base_type)"
             )
         }
     }
@@ -1651,12 +1846,7 @@ class FilamentDbHelper(context: Context) :
         trayUid: String,
         remainingPercent: Float,
         remainingGrams: Int?,
-        materialId: String,
-        materialType: String,
-        colorName: String,
-        colorCode: String,
-        colorType: String,
-        colorValues: List<String>
+        filamentId: Long?
     ) {
         val values = ContentValues()
         values.put("tray_uid", trayUid)
@@ -1664,12 +1854,9 @@ class FilamentDbHelper(context: Context) :
         if (remainingGrams != null) {
             values.put("remaining_grams", remainingGrams)
         }
-        values.put("material_id", materialId)
-        values.put("material_type", materialType)
-        values.put("color_name", colorName)
-        values.put("color_code", colorCode)
-        values.put("color_type", colorType)
-        values.put("color_values", colorValues.joinToString(separator = ","))
+        if (filamentId != null) {
+            values.put("filament_id", filamentId)
+        }
         db.insertWithOnConflict(
             TRAY_UID_TABLE,
             null,
@@ -1678,17 +1865,25 @@ class FilamentDbHelper(context: Context) :
         )
     }
 
-    fun queryInventory(db: SQLiteDatabase, keyword: String): List<InventoryItem> {
-        val columns = arrayOf(
-            "tray_uid",
-            "material_type",
-            "color_name",
-            "color_code",
-            "color_type",
-            "color_values",
-            "remaining_percent",
-            "remaining_grams"
+    fun getFilamentId(db: SQLiteDatabase, filaId: String, filaColorCode: String): Long? {
+        val cursor = db.query(
+            FILAMENT_TABLE,
+            arrayOf("id"),
+            "fila_id = ? AND fila_color_code = ?",
+            arrayOf(filaId, filaColorCode),
+            null,
+            null,
+            null
         )
+        cursor.use {
+            if (it.moveToFirst()) {
+                return it.getLong(0)
+            }
+        }
+        return null
+    }
+
+    fun queryInventory(db: SQLiteDatabase, keyword: String): List<InventoryItem> {
         val trimmed = keyword.trim()
         val selection: String?
         val selectionArgs: Array<String>?
@@ -1697,27 +1892,37 @@ class FilamentDbHelper(context: Context) :
             selectionArgs = null
         } else {
             selection = """
-                tray_uid LIKE ? OR
-                material_id LIKE ? OR
-                material_type LIKE ? OR
-                color_name LIKE ? OR
-                color_code LIKE ? OR
-                color_type LIKE ? OR
-                color_values LIKE ? OR
-                CAST(remaining_percent AS TEXT) LIKE ?
+                t.tray_uid LIKE ? OR
+                f.fila_id LIKE ? OR
+                f.fila_type LIKE ? OR
+                f.color_name_zh LIKE ? OR
+                f.fila_color_code LIKE ? OR
+                f.fila_color_type LIKE ? OR
+                f.color_values LIKE ? OR
+                CAST(t.remaining_percent AS TEXT) LIKE ?
             """.trimIndent()
             val pattern = "%$trimmed%"
             selectionArgs = Array(8) { pattern }
         }
-        val cursor = db.query(
-            TRAY_UID_TABLE,
-            columns,
-            selection,
-            selectionArgs,
-            null,
-            null,
-            "tray_uid ASC"
-        )
+        val sql = """
+            SELECT 
+                t.tray_uid,
+                COALESCE(f.fila_type, '') as material_type,
+                COALESCE(f.color_name_zh, '') as color_name,
+                COALESCE(f.fila_color_code, '') as color_code,
+                COALESCE(f.fila_color_type, '') as color_type,
+                COALESCE(f.color_values, '') as color_values,
+                t.remaining_percent,
+                t.remaining_grams
+            FROM 
+                $TRAY_UID_TABLE t
+            LEFT JOIN 
+                $FILAMENT_TABLE f ON t.filament_id = f.id
+            ${if (selection != null) "WHERE $selection" else ""}
+            ORDER BY 
+                t.tray_uid ASC
+        """.trimIndent()
+        val cursor = db.rawQuery(sql, selectionArgs)
         cursor.use {
             val results = ArrayList<InventoryItem>()
             while (it.moveToNext()) {

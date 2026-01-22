@@ -1,6 +1,5 @@
 package com.m0h31h31.bamburfidreader.utils
 
-import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -11,7 +10,6 @@ import java.net.URL
 import java.security.MessageDigest
 
 object NetworkUtils {
-    private const val TAG = "NetworkUtils"
     private const val TIMEOUT_MS = 10000 // 10秒超时
 
     /**
@@ -25,11 +23,11 @@ object NetworkUtils {
             try {
                 fetchFileWithTimeout(primaryUrl)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to fetch from primary URL: $primaryUrl", e)
+                com.m0h31h31.bamburfidreader.logDebug("Failed to fetch from primary URL: $primaryUrl, error: ${e.message}")
                 try {
                     fetchFileWithTimeout(backupUrl)
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to fetch from backup URL: $backupUrl", e)
+                    com.m0h31h31.bamburfidreader.logDebug("Failed to fetch from backup URL: $backupUrl, error: ${e.message}")
                     null
                 }
             }
@@ -88,7 +86,7 @@ object NetworkUtils {
             val fileBytes = java.io.File(filePath).readBytes()
             calculateHash(fileBytes)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to calculate file hash", e)
+            com.m0h31h31.bamburfidreader.logDebug("Failed to calculate file hash: ${e.message}")
             null
         }
     }

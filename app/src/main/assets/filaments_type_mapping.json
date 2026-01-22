@@ -1,0 +1,75 @@
+{
+    "ABS": [
+        "ABS",
+        "ABS-GF"
+    ],
+    "ASA": [
+        "ASA",
+        "ASA-Aero",
+        "ASA-CF"
+    ],
+    "PA": [
+        "PA-CF",
+        "PA6-CF",
+        "PA6-GF",
+        "PAHT-CF"
+    ],
+    "PC": [
+        "PC",
+        "PC FR"
+    ],
+    "PET": [
+        "PET-CF"
+    ],
+    "PETG": [
+        "PETG Basic",
+        "PETG HF",
+        "PETG Translucent",
+        "PETG-CF"
+    ],
+    "PLA": [
+        "PLA Aero",
+        "PLA Basic",
+        "PLA Dynamic",
+        "PLA Galaxy",
+        "PLA Glow",
+        "PLA Impact",
+        "PLA Lite",
+        "PLA Marble",
+        "PLA Matte",
+        "PLA Metal",
+        "PLA Silk",
+        "PLA Silk+",
+        "PLA Sparkle",
+        "PLA Tough",
+        "PLA Tough+",
+        "PLA Translucent",
+        "PLA Wood",
+        "PLA-CF"
+    ],
+    "PPA": [
+        "PPA-CF",
+        "PPA-GF"
+    ],
+    "PPS": [
+        "PPS-CF"
+    ],
+    "PVA": [
+        "PVA"
+    ],
+    "Support": [
+        "Support for ABS",
+        "Support For PA PET",
+        "Support For PLA",
+        "Support For PLA-PETG",
+        "Support G",
+        "Support W"
+    ],
+    "TPU": [
+        "TPU 85A",
+        "TPU 90A",
+        "TPU 95A",
+        "TPU 95A HF",
+        "TPU for AMS"
+    ]
+}
