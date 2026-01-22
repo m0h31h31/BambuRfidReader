@@ -1,5 +1,6 @@
 package com.m0h31h31.bamburfidreader.ui.screens
 
+import android.graphics.drawable.Icon
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,9 +13,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
@@ -22,10 +23,19 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBar
+import androidx.compose.material3.Surface
+import androidx.compose.material3.TextField
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -41,15 +51,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.res.painterResource
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Search
 import com.m0h31h31.bamburfidreader.FilamentDbHelper
 import com.m0h31h31.bamburfidreader.InventoryItem
 import com.m0h31h31.bamburfidreader.R
 import com.m0h31h31.bamburfidreader.ui.components.ColorSwatch
+import com.m0h31h31.bamburfidreader.ui.theme.BambuRfidReaderTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
-@Preview
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InventoryScreen(
@@ -58,16 +67,49 @@ fun InventoryScreen(
 ) {
     var query by remember { mutableStateOf("") }
     var items by remember { mutableStateOf<List<InventoryItem>>(emptyList()) }
-    var message by remember { mutableStateOf("") }
     var refreshKey by remember { mutableStateOf(0) }
     var pendingDelete by remember { mutableStateOf<InventoryItem?>(null) }
+    var sortByRemaining by remember { mutableStateOf(false) }
+    var sortDescending by remember { mutableStateOf(true) }
+    val lazyListState = rememberLazyListState()
 
-    LaunchedEffect(dbHelper, query, refreshKey) {
+    LaunchedEffect(dbHelper, query, refreshKey, sortByRemaining, sortDescending) {
         val db = dbHelper?.readableDatabase
-        items = if (db != null) {
-            dbHelper.queryInventory(db, query)
+        val result = if (db != null) {
+            val inventoryItems = dbHelper.queryInventory(db, query)
+            if (sortByRemaining) {
+                if (sortDescending) {
+                    // 降序排序：余量从多到少
+                    inventoryItems.sortedByDescending { it.remainingPercent }
+                } else {
+                    // 升序排序：余量从少到多
+                    inventoryItems.sortedBy { it.remainingPercent }
+                }
+            } else {
+                inventoryItems
+            }
         } else {
             emptyList()
+        }
+        // 确保在主线程中更新状态并滚动到顶部
+        withContext(Dispatchers.Main) {
+            items = result
+            // 数据更新后滚动到列表顶部
+            lazyListState.scrollToItem(0)
+        }
+    }
+
+    fun toggleSort() {
+        if (!sortByRemaining) {
+            // 如果未启用排序，则启用排序并默认降序
+            sortByRemaining = true
+            sortDescending = true
+        } else if (sortDescending) {
+            // 如果是降序排序，则切换为升序排序
+            sortDescending = false
+        } else {
+            // 如果是升序排序，则禁用排序
+            sortByRemaining = false
         }
     }
 
@@ -101,60 +143,54 @@ fun InventoryScreen(
         )
     }
 
-    Scaffold(
-        modifier = modifier.fillMaxSize(),
-        bottomBar = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (message.isNotBlank()) {
-                    Text(
-                        text = message,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-            }
-        }
-    ) { innerPadding ->
+    Surface(
+        modifier = modifier.fillMaxSize()
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
                 text = stringResource(R.string.inventory_title),
                 style = MaterialTheme.typography.titleLarge
             )
-            androidx.compose.material3.SearchBar(
-                inputField = {
-                    OutlinedTextField(
-                        value = query,
-                        onValueChange = { query = it },
-                        placeholder = { Text(text = stringResource(R.string.inventory_search_placeholder)) },
-                        singleLine = true,
-                        leadingIcon = {
-                            androidx.compose.material3.IconButton(onClick = { /* 搜索操作 */ }) {
-                                androidx.compose.material3.Icon(
-                                    imageVector = Icons.Filled.Search,
-                                    contentDescription = stringResource(R.string.inventory_search_placeholder)
-                                )
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                },
-                expanded = false,
-                onExpandedChange = { },
-                modifier = Modifier.fillMaxWidth()
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // 搜索结果内容
+                TextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = { Text(text = stringResource(R.string.inventory_search_placeholder)) },
+                    singleLine = true,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(vertical = 0.dp),
+                )
+                IconButton(
+                    onClick = { toggleSort() },
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .background(
+                            if (sortByRemaining) MaterialTheme.colorScheme.primaryContainer 
+                            else Color.Transparent,
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                ) {
+                    Icon(
+                        imageVector = if (sortByRemaining && sortDescending) 
+                            Icons.Filled.ArrowDownward 
+                        else if (sortByRemaining) 
+                            Icons.Filled.ArrowUpward 
+                        else
+                            Icons.AutoMirrored.Filled.Sort,
+                        contentDescription = "排序",
+                        tint = if (sortByRemaining) MaterialTheme.colorScheme.primary 
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
             if (items.isEmpty()) {
                 Text(
@@ -164,6 +200,7 @@ fun InventoryScreen(
                 )
             } else {
                 LazyColumn(
+                    state = lazyListState,
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -298,5 +335,15 @@ fun InventoryScreen(
                 }
             }
         }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun PreviewInventoryScreen() {
+    BambuRfidReaderTheme {
+        InventoryScreen(
+            dbHelper = null
+        )
     }
 }

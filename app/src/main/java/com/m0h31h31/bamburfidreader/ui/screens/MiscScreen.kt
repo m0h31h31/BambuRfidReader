@@ -7,10 +7,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -39,6 +42,25 @@ fun MiscScreen(
     val boostLink =
         "bambulab://bbl/design/model/detail?design_id=2020787&instance_id=2253290&appSharePlatform=copy"
     var message by remember { mutableStateOf("") }
+    var showReadAllSectorsDialog by remember { mutableStateOf(false) }
+    
+    // 处理开关变化
+    fun handleReadAllSectorsChange(checked: Boolean) {
+        if (checked) {
+            // 当用户想要开启时，显示弹窗提醒
+            showReadAllSectorsDialog = true
+        } else {
+            // 关闭时直接执行
+            onReadAllSectorsChange(false)
+        }
+    }
+    
+    // 处理弹窗确认
+    fun confirmReadAllSectors() {
+        showReadAllSectorsDialog = false
+        onReadAllSectorsChange(true)
+    }
+    
     Surface(
         modifier = modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
@@ -67,23 +89,58 @@ fun MiscScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            TextButton(onClick = { uriHandler.openUri(boostLink) }) {
-                Text(text = stringResource(R.string.action_boost_open_bambu))
-            }
-            
+
+            HorizontalDivider(
+                modifier = Modifier.fillMaxWidth(),
+                thickness = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
             // 添加读取全部扇区的开关
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
             ) {
-                Text(text = "读取全部扇区")
+                Text(text = "读取全部扇区数据")
                 Switch(
                     checked = readAllSectors,
-                    onCheckedChange = onReadAllSectorsChange
+                    onCheckedChange = ::handleReadAllSectorsChange
                 )
             }
             
+            // 读取全部扇区的弹窗提醒
+            if (showReadAllSectorsDialog) {
+                AlertDialog(
+                    onDismissRequest = { showReadAllSectorsDialog = false },
+                    title = { Text(text = "读取全部数据提醒") },
+                    text = {
+                        Text(
+                            text = "读取全部数据会影响读取速度，数据会保存在包名下的 rfid_file 文件夹下。确定要开启吗？"
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = ::confirmReadAllSectors
+                        ) {
+                            Text(text = "确定")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(
+                            onClick = { showReadAllSectorsDialog = false }
+                        ) {
+                            Text(text = "取消")
+                        }
+                    }
+                )
+            }
+
+            HorizontalDivider(
+                modifier = Modifier.fillMaxWidth(),
+                thickness = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -106,6 +163,18 @@ fun MiscScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(text = "重置数据库")
+            }
+
+
+
+            HorizontalDivider(
+                modifier = Modifier.fillMaxWidth(),
+                thickness = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
+
+            TextButton(onClick = { uriHandler.openUri(boostLink) }) {
+                Text(text = stringResource(R.string.action_boost_open_bambu))
             }
         }
     }

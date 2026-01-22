@@ -14,6 +14,7 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.lifecycle.lifecycleScope
 import androidx.annotation.StringRes
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -227,7 +228,7 @@ class MainActivity : ComponentActivity() {
      * 检查并更新配置文件
      */
     private fun checkAndUpdateConfig() {
-        GlobalScope.launch(Dispatchers.IO) {
+        lifecycleScope.launch(Dispatchers.IO) {
             com.m0h31h31.bamburfidreader.utils.ConfigManager.checkAndUpdateConfig(
                 this@MainActivity,
                 object : kotlin.jvm.functions.Function2<String, kotlin.jvm.functions.Function0<Unit>, Unit> {
@@ -565,7 +566,7 @@ class MainActivity : ComponentActivity() {
                 val locales = listOf(
                     Locale.SIMPLIFIED_CHINESE,
                     Locale.CHINESE,
-                    Locale("zh", "CN"),
+                    Locale.Builder().setLanguage("zh").setRegion("CN").build(),
                     Locale.getDefault()
                 )
                 for (locale in locales) {

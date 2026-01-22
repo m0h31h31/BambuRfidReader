@@ -22,6 +22,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.tooling.preview.Preview
 import com.m0h31h31.bamburfidreader.NfcUiState
 import com.m0h31h31.bamburfidreader.R
 import com.m0h31h31.bamburfidreader.FilamentDbHelper

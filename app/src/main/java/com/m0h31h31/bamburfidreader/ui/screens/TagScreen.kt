@@ -31,6 +31,9 @@ fun TagScreen(modifier: Modifier = Modifier) {
                 text = stringResource(R.string.tab_tag),
                 style = MaterialTheme.typography.titleLarge
             )
+
+
+            Text("写标签相关功能 待开发  助力加速\uD83D\uDE00")
         }
     }
 }
