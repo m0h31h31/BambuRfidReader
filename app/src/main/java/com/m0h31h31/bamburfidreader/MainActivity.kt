@@ -49,7 +49,7 @@ private const val LOG_TAG = "BambuRfidReader"
 private const val FILAMENT_JSON_NAME = "filaments_color_codes.json"
 private const val FILAMENTS_TYPE_MAPPING_FILE = "filaments_type_mapping.json"
 private const val FILAMENT_DB_NAME = "filaments.db"
-private const val FILAMENT_DB_VERSION = 10
+private const val FILAMENT_DB_VERSION = 13
 private const val FILAMENT_TABLE = "filaments"
 private const val FILAMENT_TYPE_MAPPING_TABLE = "filament_type_mapping"
 private const val FILAMENT_META_TABLE = "meta_v2"
@@ -180,6 +180,7 @@ data class FilamentColorEntry(
     val filaId: String,
     val colorType: String,
     val filaType: String,
+    val filaDetailedType: String = "",
     val colorNameZh: String,
     val colorValues: List<String>,
     val colorCount: Int
@@ -188,6 +189,8 @@ data class FilamentColorEntry(
 data class ParsedBlockData(
     val fields: List<ParsedField>,
     val materialId: String,
+    val filamentType: String = "",
+    val detailedFilamentType: String = "",
     val colorValues: List<String>
 )
 
@@ -841,25 +844,6 @@ class MainActivity : ComponentActivity() {
 
             val trayUidHex = rawBlocks.getOrNull(9)?.toHex().orEmpty()
             var remainingPercent = DEFAULT_REMAINING_PERCENT.toFloat()
-            var remainingGrams = 0
-            if (trayUidHex.isNotBlank()) {
-                val dbHelper = filamentDbHelper
-                val db = dbHelper?.writableDatabase
-                if (db != null) {
-                    val stored = dbHelper.getTrayRemainingPercent(db, trayUidHex)
-                    val storedGrams = dbHelper.getTrayRemainingGrams(db, trayUidHex)
-                    remainingPercent = stored ?: DEFAULT_REMAINING_PERCENT.toFloat()
-                    // 对于新刷的耗材，使用从NFC标签中读取的totalWeightGrams作为初始克重
-                    remainingGrams = storedGrams ?: 0
-                    dbHelper.upsertTrayRemaining(db, trayUidHex, remainingPercent, remainingGrams)
-                }
-                logDebug("??UID(??9): $trayUidHex, ??: $remainingPercent%")
-                LogCollector.append(applicationContext, "I", "??UID(??9): $trayUidHex, ??: $remainingPercent%")
-            } else {
-                logDebug("??????9??UID")
-                LogCollector.append(applicationContext, "W", "??????9??UID")
-            }
-
             // 从rawBlocks中提取所需的区块数据
             val blocksForParsing = listOf(
                 rawBlocks.getOrNull(0),  // block0
@@ -883,17 +867,28 @@ class MainActivity : ComponentActivity() {
             }
             val parsedBlockData = parseBlocks(blocksForParsing, block12, block16)
             val totalWeightGrams = extractWeightGrams(parsedBlockData.fields)
-            // 对于新刷的耗材，如果克重为0且从NFC标签中读取到了克重，则使用NFC读取的克重
-            if (remainingGrams == 0 && totalWeightGrams > 0) {
-                remainingGrams = totalWeightGrams
-                // 更新数据库中的克重值
-                if (trayUidHex.isNotBlank()) {
-                    val dbHelper = filamentDbHelper
-                    val db = dbHelper?.writableDatabase
-                    if (db != null) {
-                        dbHelper.upsertTrayRemaining(db, trayUidHex, remainingPercent, remainingGrams)
+            var remainingGrams = 0
+            if (trayUidHex.isNotBlank()) {
+                val dbHelper = filamentDbHelper
+                val db = dbHelper?.writableDatabase
+                if (db != null) {
+                    val stored = dbHelper.getTrayRemainingPercent(db, trayUidHex)
+                    val storedGrams = dbHelper.getTrayRemainingGrams(db, trayUidHex)
+                    remainingPercent = stored ?: DEFAULT_REMAINING_PERCENT.toFloat()
+                    // 对于新刷的耗材，使用从NFC标签中读取的totalWeightGrams作为初始克重
+                    remainingGrams = storedGrams ?: 0
+                    // 如果克重为0且从NFC标签中读取到了克重，则使用NFC读取的克重
+                    if (remainingGrams == 0 && totalWeightGrams > 0) {
+                        remainingGrams = totalWeightGrams
                     }
+                    // 存储总克重到数据库
+                    dbHelper.upsertTrayRemaining(db, trayUidHex, remainingPercent, remainingGrams, totalWeightGrams)
                 }
+                logDebug("??UID(??9): $trayUidHex, ??: $remainingPercent%")
+                LogCollector.append(applicationContext, "I", "??UID(??9): $trayUidHex, ??: $remainingPercent%")
+            } else {
+                logDebug("??????9??UID")
+                LogCollector.append(applicationContext, "W", "??????9??UID")
             }
             val displayData = buildDisplayData(parsedBlockData, filamentDbHelper)
             parsedBlockData.fields.forEach { field ->
@@ -924,7 +919,15 @@ class MainActivity : ComponentActivity() {
                         trayUidHex,
                         remainingPercent,
                         remainingGrams,
-                        filamentId
+                        totalWeightGrams,
+                        filamentId,
+                        materialId = parsedBlockData.materialId,
+                        materialType = parsedBlockData.filamentType,
+                        detailedMaterialType = parsedBlockData.detailedFilamentType,
+                        colorName = displayData.colorName,
+                        colorCode = displayData.colorCode,
+                        colorType = displayData.colorType,
+                        colorValues = displayData.colorValues.joinToString(separator = ",")
                     )
                 }
             }
@@ -1022,6 +1025,8 @@ private fun parseBlocks(
 ): ParsedBlockData {
     val parsed = ArrayList<ParsedField>()
     var materialId = ""
+    var filamentType = ""
+    var detailedFilamentType = ""
     val colorValues = ArrayList<String>()
 
     val block0 = blocks.getOrNull(0)
@@ -1048,7 +1053,7 @@ private fun parseBlocks(
 
     val block2 = blocks.getOrNull(2)
     if (block2 != null && block2.size >= 16) {
-        val filamentType = asciiOrHex(block2.copyOfRange(0, 16))
+        filamentType = asciiOrHex(block2.copyOfRange(0, 16))
         if (filamentType.isNotBlank()) {
             parsed.add(ParsedField("Block 2 Filament Type", filamentType))
         }
@@ -1056,9 +1061,9 @@ private fun parseBlocks(
 
     val block4 = blocks.getOrNull(4)
     if (block4 != null && block4.size >= 16) {
-        val detailedType = asciiOrHex(block4.copyOfRange(0, 16))
-        if (detailedType.isNotBlank()) {
-            parsed.add(ParsedField("Block 4 Detailed Filament Type", detailedType))
+        detailedFilamentType = asciiOrHex(block4.copyOfRange(0, 16))
+        if (detailedFilamentType.isNotBlank()) {
+            parsed.add(ParsedField("Block 4 Detailed Filament Type", detailedFilamentType))
         }
     }
 
@@ -1130,7 +1135,13 @@ private fun parseBlocks(
     val extraColors = parseAdditionalColors(block16)
     colorValues.addAll(extraColors)
 
-    return ParsedBlockData(parsed, materialId, colorValues)
+    return ParsedBlockData(
+        fields = parsed,
+        materialId = materialId,
+        filamentType = filamentType,
+        detailedFilamentType = detailedFilamentType,
+        colorValues = colorValues
+    )
 }
 
 private fun parseAdditionalColors(block16: ByteArray?): List<String> {
@@ -1441,21 +1452,28 @@ internal fun syncFilamentDatabase(context: Context, dbHelper: FilamentDbHelper) 
         db.delete(FILAMENT_TABLE, null, null)
         val values = ContentValues()
         entries.forEach { entry ->
-            values.clear()
-            values.put("fila_id", entry.filaId)
-            values.put("fila_color_code", entry.colorCode)
-            values.put("fila_color_type", entry.colorType)
-            values.put("fila_type", entry.filaType)
-            values.put("color_name_zh", entry.colorNameZh)
-            values.put("color_values", entry.colorValues.joinToString(separator = ","))
-            values.put("color_count", entry.colorCount)
-            db.insertWithOnConflict(
-                FILAMENT_TABLE,
-                null,
-                values,
-                SQLiteDatabase.CONFLICT_REPLACE
-            )
-        }
+                values.clear()
+                values.put("fila_id", entry.filaId)
+                values.put("fila_color_code", entry.colorCode)
+                values.put("fila_color_type", entry.colorType)
+                values.put("fila_type", entry.filaType)
+                if (entry is FilamentColorEntry) {
+                    // 如果是 FilamentColorEntry，检查是否有 filaDetailedType 字段
+                    val detailedType = entry.filaDetailedType
+                    if (detailedType.isNotBlank()) {
+                        values.put("fila_detailed_type", detailedType)
+                    }
+                }
+                values.put("color_name_zh", entry.colorNameZh)
+                values.put("color_values", entry.colorValues.joinToString(separator = ","))
+                values.put("color_count", entry.colorCount)
+                db.insertWithOnConflict(
+                    FILAMENT_TABLE,
+                    null,
+                    values,
+                    SQLiteDatabase.CONFLICT_REPLACE
+                )
+            }
         
         // 清空并重新写入filament_type_mapping表
         db.delete(FILAMENT_TYPE_MAPPING_TABLE, null, null)
@@ -1645,6 +1663,7 @@ private fun queryFilamentEntries(
             "fila_id",
             "fila_color_type",
             "fila_type",
+            "fila_detailed_type",
             "color_name_zh",
             "color_values",
             "color_count"
@@ -1657,19 +1676,20 @@ private fun queryFilamentEntries(
     )
     cursor.use {
         while (it.moveToNext()) {
-            val colorValues = it.getString(5)
+            val colorValues = it.getString(6)
                 ?.split(',')
                 ?.map { value -> value.trim() }
                 ?.filter { value -> value.isNotEmpty() }
                 ?: emptyList()
-            val colorCount = it.getInt(6)
+            val colorCount = it.getInt(7)
             entries.add(
                 FilamentColorEntry(
                     colorCode = it.getString(0).orEmpty(),
                     filaId = it.getString(1).orEmpty(),
                     colorType = it.getString(2).orEmpty(),
                     filaType = it.getString(3).orEmpty(),
-                    colorNameZh = it.getString(4).orEmpty(),
+                    filaDetailedType = it.getString(4).orEmpty(),
+                    colorNameZh = it.getString(5).orEmpty(),
                     colorValues = colorValues,
                     colorCount = colorCount
                 )
@@ -1692,6 +1712,7 @@ class FilamentDbHelper(context: Context) :
                 fila_color_code TEXT NOT NULL,
                 fila_color_type TEXT,
                 fila_type TEXT,
+                fila_detailed_type TEXT,
                 color_name_zh TEXT,
                 color_values TEXT,
                 color_count INTEGER,
@@ -1717,7 +1738,15 @@ class FilamentDbHelper(context: Context) :
                 tray_uid TEXT UNIQUE NOT NULL,
                 remaining_percent REAL NOT NULL,
                 remaining_grams INTEGER,
+                total_weight_grams INTEGER,
                 filament_id INTEGER,
+                material_id TEXT,
+                material_type TEXT,
+                material_detailed_type TEXT,
+                color_name TEXT,
+                color_code TEXT,
+                color_type TEXT,
+                color_values TEXT,
                 FOREIGN KEY (filament_id) REFERENCES $FILAMENT_TABLE(id)
             )
             """.trimIndent()
@@ -1805,6 +1834,7 @@ class FilamentDbHelper(context: Context) :
                     tray_uid TEXT UNIQUE NOT NULL,
                     remaining_percent REAL NOT NULL,
                     remaining_grams INTEGER,
+                    total_weight_grams INTEGER,
                     filament_id INTEGER,
                     FOREIGN KEY (filament_id) REFERENCES $FILAMENT_TABLE(id)
                 )
@@ -1814,8 +1844,8 @@ class FilamentDbHelper(context: Context) :
             // 由于我们需要通过fila_id和color_code关联到filament表的id，这里需要使用临时方案
             // 实际应用中，可能需要更复杂的数据迁移逻辑
             db.execSQL(
-                "INSERT INTO \"$tempInventoryTable\" (tray_uid, remaining_percent, remaining_grams) " +
-                "SELECT tray_uid, remaining_percent, remaining_grams FROM \"$TRAY_UID_TABLE\""
+                "INSERT INTO \"$tempInventoryTable\" (tray_uid, remaining_percent, remaining_grams, total_weight_grams) " +
+                "SELECT tray_uid, remaining_percent, remaining_grams, total_weight_grams FROM \"$TRAY_UID_TABLE\""
             )
             db.execSQL("DROP TABLE IF EXISTS \"$TRAY_UID_TABLE\"")
             db.execSQL("ALTER TABLE \"$tempInventoryTable\" RENAME TO \"$TRAY_UID_TABLE\"")
@@ -1835,6 +1865,22 @@ class FilamentDbHelper(context: Context) :
             db.execSQL(
                 "CREATE INDEX IF NOT EXISTS idx_filament_type_mapping_base_type ON $FILAMENT_TYPE_MAPPING_TABLE (base_type)"
             )
+        }
+        if (oldVersion < 11) {
+            // 添加总克重字段
+            addTrayColumn(db, "total_weight_grams", "INTEGER")
+        }
+        if (oldVersion < 12) {
+            // 为filament表添加详细耗材类型字段
+            try {
+                db.execSQL("ALTER TABLE $FILAMENT_TABLE ADD COLUMN fila_detailed_type TEXT")
+            } catch (_: Exception) {
+                // Ignore duplicate column errors.
+            }
+        }
+        if (oldVersion < 13) {
+            // 为filament_inventory表添加详细材料类型字段
+            addTrayColumn(db, "material_detailed_type", "TEXT")
         }
     }
 
@@ -1907,12 +1953,18 @@ class FilamentDbHelper(context: Context) :
         db: SQLiteDatabase,
         trayUid: String,
         percent: Float,
-        grams: Int?
+        grams: Int?,
+        totalGrams: Int? = null
     ) {
         val values = ContentValues()
-        values.put("remaining_percent", percent)
+        // 只保留1位小数
+        val roundedPercent = Math.round(percent * 10) / 10f
+        values.put("remaining_percent", roundedPercent)
         if (grams != null) {
             values.put("remaining_grams", grams)
+        }
+        if (totalGrams != null) {
+            values.put("total_weight_grams", totalGrams)
         }
         val updated = db.update(
             TRAY_UID_TABLE,
@@ -1936,7 +1988,15 @@ class FilamentDbHelper(context: Context) :
         trayUid: String,
         remainingPercent: Float,
         remainingGrams: Int?,
-        filamentId: Long?
+        totalWeightGrams: Int? = null,
+        filamentId: Long?,
+        materialId: String? = null,
+        materialType: String? = null,
+        detailedMaterialType: String? = null,
+        colorName: String? = null,
+        colorCode: String? = null,
+        colorType: String? = null,
+        colorValues: String? = null
     ) {
         val values = ContentValues()
         values.put("tray_uid", trayUid)
@@ -1944,8 +2004,32 @@ class FilamentDbHelper(context: Context) :
         if (remainingGrams != null) {
             values.put("remaining_grams", remainingGrams)
         }
+        if (totalWeightGrams != null) {
+            values.put("total_weight_grams", totalWeightGrams)
+        }
         if (filamentId != null) {
             values.put("filament_id", filamentId)
+        }
+        if (materialId != null) {
+            values.put("material_id", materialId)
+        }
+        if (materialType != null) {
+            values.put("material_type", materialType)
+        }
+        if (detailedMaterialType != null) {
+            values.put("material_detailed_type", detailedMaterialType)
+        }
+        if (colorName != null) {
+            values.put("color_name", colorName)
+        }
+        if (colorCode != null) {
+            values.put("color_code", colorCode)
+        }
+        if (colorType != null) {
+            values.put("color_type", colorType)
+        }
+        if (colorValues != null) {
+            values.put("color_values", colorValues)
         }
         db.insertWithOnConflict(
             TRAY_UID_TABLE,

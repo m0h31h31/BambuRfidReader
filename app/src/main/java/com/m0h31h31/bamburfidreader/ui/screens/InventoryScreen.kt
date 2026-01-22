@@ -31,6 +31,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Button
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.ArrowDownward
@@ -69,6 +71,10 @@ fun InventoryScreen(
     var items by remember { mutableStateOf<List<InventoryItem>>(emptyList()) }
     var refreshKey by remember { mutableStateOf(0) }
     var pendingDelete by remember { mutableStateOf<InventoryItem?>(null) }
+    var pendingEdit by remember { mutableStateOf<InventoryItem?>(null) }
+    var editPercent by remember { mutableStateOf(0f) }
+    var editGrams by remember { mutableStateOf<Int?>(null) }
+    var editTotalGrams by remember { mutableStateOf(0) }
     var sortByRemaining by remember { mutableStateOf(false) }
     var sortDescending by remember { mutableStateOf(true) }
     val lazyListState = rememberLazyListState()
@@ -142,6 +148,123 @@ fun InventoryScreen(
             }
         )
     }
+    if (pendingEdit != null) {
+        AlertDialog(
+            onDismissRequest = { pendingEdit = null },
+            title = { Text(text = "编辑耗材") },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Button(
+                            onClick = {
+                                val target = pendingEdit
+                                if (target != null && editTotalGrams > 0) {
+                                    val next = (editGrams ?: 0) - 1
+                                    val clamped = next.coerceAtLeast(0)
+                                    editGrams = clamped
+                                    editPercent = (clamped * 100f / editTotalGrams)
+                                }
+                            },
+                            enabled = pendingEdit != null && editTotalGrams > 0
+                        ) {
+                            Text(text = "-")
+                        }
+                        TextField(
+                            value = editGrams?.toString() ?: "",
+                            onValueChange = { text ->
+                                val value = text.filter { it.isDigit() }
+                                val intValue = value.toIntOrNull() ?: 0
+                                editGrams = intValue
+                                val target = pendingEdit
+                                if (target != null && editTotalGrams > 0) {
+                                    editPercent = (intValue * 100f / editTotalGrams)
+                                }
+                            },
+                            label = { Text(text = "剩余克重(g)") },
+                            singleLine = true,
+                            modifier = modifier.weight(1f)
+                        )
+//                        Text(
+//                            text = "g",
+//                            style = MaterialTheme.typography.bodyMedium,
+//                            modifier = Modifier.padding(start = 8.dp)
+//                        )
+                        Button(
+                            onClick = {
+                                val target = pendingEdit
+                                if (target != null && editTotalGrams > 0) {
+                                    val next = (editGrams ?: 0) + 1
+                                    val clamped = next.coerceAtMost(editTotalGrams)
+                                    editGrams = clamped
+                                    editPercent = (clamped * 100f / editTotalGrams)
+                                }
+                            },
+                            enabled = pendingEdit != null && editTotalGrams > 0
+                        ) {
+                            Text(text = "+")
+                        }
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Slider(
+                            value = editGrams?.toFloat() ?: 0f,
+                            onValueChange = { value ->
+                                val target = pendingEdit
+                                if (target != null && editTotalGrams > 0) {
+                                    val intValue = Math.round(value).toInt().coerceIn(0, editTotalGrams)
+                                    editGrams = intValue
+                                    editPercent = (intValue * 100f / editTotalGrams)
+                                }
+                            },
+                            valueRange = 0f..editTotalGrams.toFloat(),
+                            enabled = pendingEdit != null && editTotalGrams > 0,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = String.format("%.1f%%", editPercent),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val target = pendingEdit
+                        if (target != null) {
+                            val db = dbHelper?.writableDatabase
+                            if (db != null) {
+                                // 更新百分比和克重
+                                dbHelper.upsertTrayRemaining(db, target.trayUid, editPercent, editGrams)
+                            }
+                            // 更新本地列表
+                            items = items.map { 
+                                if (it.trayUid == target.trayUid) {
+                                    it.copy(remainingPercent = editPercent, remainingGrams = editGrams)
+                                } else {
+                                    it
+                                }
+                            }
+                        }
+                        pendingEdit = null
+                    }
+                ) {
+                    Text(text = "确定")
+                }
+            },
+            dismissButton = {
+                Button(onClick = { pendingEdit = null }) {
+                    Text(text = stringResource(R.string.action_cancel))
+                }
+            }
+        )
+    }
 
     Surface(
         modifier = modifier.fillMaxSize()
@@ -208,29 +331,55 @@ fun InventoryScreen(
                         val dismissState = rememberSwipeToDismissBoxState(
                             confirmValueChange = { value ->
                                 if (value == SwipeToDismissBoxValue.EndToStart) {
+                                    // 右滑删除
                                     if (pendingDelete == null) {
                                         pendingDelete = item
                                     }
                                     false
-                                } else {
-                                    false
+                                } else if (value == SwipeToDismissBoxValue.StartToEnd) {
+                                // 左滑编辑
+                                if (pendingEdit == null) {
+                                    pendingEdit = item
+                                    editPercent = item.remainingPercent
+                                    editGrams = item.remainingGrams
+                                    // 假设总克重为1000g，实际应用中可能需要从数据库中获取
+                                    editTotalGrams = 1000
                                 }
+                                false
+                            } else {
+                                false
+                            }
                             }
                         )
                         SwipeToDismissBox(
                             state = dismissState,
                             backgroundContent = {
+                                val color = if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
+                                    Color(0xFFE54D4D) // 删除红色
+                                } else {
+                                    Color(0xFF4CAF50) // 编辑绿色
+                                }
+                                val alignment = if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
+                                    Alignment.CenterEnd
+                                } else {
+                                    Alignment.CenterStart
+                                }
+                                val text = if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
+                                    stringResource(R.string.action_delete)
+                                } else {
+                                    "编辑"
+                                }
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .padding(vertical = 6.dp)
                                         .clip(RoundedCornerShape(12.dp))
-                                        .background(Color(0xFFE54D4D))
+                                        .background(color)
                                         .padding(horizontal = 16.dp),
-                                    contentAlignment = Alignment.CenterEnd
+                                    contentAlignment = alignment
                                 ) {
                                     Text(
-                                        text = stringResource(R.string.action_delete),
+                                        text = text,
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = Color.White,
                                         fontWeight = FontWeight.SemiBold
