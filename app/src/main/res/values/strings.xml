@@ -11,6 +11,7 @@
     <string name="action_boost_open_bambu">Boost: Open Bambu App</string>
     <string name="tab_reader">Scan</string>
     <string name="tab_inventory">Inventory</string>
+    <string name="tab_data">Data</string>
     <string name="tab_tag">Tag</string>
     <string name="tab_misc">Misc</string>
 

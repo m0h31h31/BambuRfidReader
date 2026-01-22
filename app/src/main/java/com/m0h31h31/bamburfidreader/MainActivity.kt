@@ -197,6 +197,7 @@ data class ParsedBlockData(
 data class InventoryItem(
     val trayUid: String,
     val materialType: String,
+    val materialDetailedType: String = "",
     val colorName: String,
     val colorCode: String,
     val colorType: String,
@@ -2081,8 +2082,9 @@ class FilamentDbHelper(context: Context) :
         val sql = """
             SELECT 
                 t.tray_uid,
-                COALESCE(f.fila_type, '') as material_type,
-                COALESCE(f.color_name_zh, '') as color_name,
+                COALESCE(f.fila_type, '未知') as material_type,
+                COALESCE(f.fila_detailed_type, '未知') as material_detailed_type,
+                COALESCE(f.color_name_zh, '未知') as color_name,
                 COALESCE(f.fila_color_code, '') as color_code,
                 COALESCE(f.fila_color_type, '') as color_type,
                 COALESCE(f.color_values, '') as color_values,
@@ -2100,7 +2102,7 @@ class FilamentDbHelper(context: Context) :
         cursor.use {
             val results = ArrayList<InventoryItem>()
             while (it.moveToNext()) {
-                val colorValues = it.getString(5).orEmpty()
+                val colorValues = it.getString(6).orEmpty()
                     .split(",")
                     .map { value -> value.trim() }
                     .filter { value -> value.isNotBlank() }
@@ -2108,12 +2110,59 @@ class FilamentDbHelper(context: Context) :
                     InventoryItem(
                         trayUid = it.getString(0).orEmpty(),
                         materialType = it.getString(1).orEmpty(),
-                        colorName = it.getString(2).orEmpty(),
-                        colorCode = it.getString(3).orEmpty(),
-                        colorType = it.getString(4).orEmpty(),
+                        materialDetailedType = it.getString(2).orEmpty(),
+                        colorName = it.getString(3).orEmpty(),
+                        colorCode = it.getString(4).orEmpty(),
+                        colorType = it.getString(5).orEmpty(),
                         colorValues = colorValues,
-                        remainingPercent = it.getFloat(6),
-                        remainingGrams = if (!it.isNull(7)) it.getInt(7) else null
+                        remainingPercent = it.getFloat(7),
+                        remainingGrams = if (!it.isNull(8)) it.getInt(8) else null
+                    )
+                )
+            }
+            return results
+        }
+    }
+    
+    /**
+     * 获取filament_inventory库的全部数据，用于数据页面显示
+     */
+    fun getAllInventory(db: SQLiteDatabase): List<InventoryItem> {
+        val sql = """
+            SELECT 
+                tray_uid,
+                material_type,
+                material_detailed_type,
+                color_name,
+                color_code,
+                color_type,
+                color_values,
+                remaining_percent,
+                remaining_grams
+            FROM 
+                "$TRAY_UID_TABLE"
+            ORDER BY 
+                tray_uid ASC
+        """.trimIndent()
+        val cursor = db.rawQuery(sql, null)
+        cursor.use {
+            val results = ArrayList<InventoryItem>()
+            while (it.moveToNext()) {
+                val colorValues = it.getString(6).orEmpty()
+                    .split(",")
+                    .map { value -> value.trim() }
+                    .filter { value -> value.isNotBlank() }
+                results.add(
+                    InventoryItem(
+                        trayUid = it.getString(0).orEmpty(),
+                        materialType = it.getString(1).orEmpty(),
+                        materialDetailedType = it.getString(2).orEmpty(),
+                        colorName = it.getString(3).orEmpty(),
+                        colorCode = it.getString(4).orEmpty(),
+                        colorType = it.getString(5).orEmpty(),
+                        colorValues = colorValues,
+                        remainingPercent = it.getFloat(7),
+                        remainingGrams = if (!it.isNull(8)) it.getInt(8) else null
                     )
                 )
             }

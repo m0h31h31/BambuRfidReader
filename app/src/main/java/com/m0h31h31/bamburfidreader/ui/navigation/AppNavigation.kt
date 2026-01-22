@@ -30,6 +30,7 @@ import com.m0h31h31.bamburfidreader.ui.screens.InventoryScreen
 import com.m0h31h31.bamburfidreader.ui.screens.ReaderScreen
 import com.m0h31h31.bamburfidreader.ui.screens.TagScreen
 import com.m0h31h31.bamburfidreader.ui.screens.MiscScreen
+import com.m0h31h31.bamburfidreader.ui.screens.DataScreen
 import com.m0h31h31.bamburfidreader.utils.ConfigManager
 
 private data class TopDestination(
@@ -40,6 +41,7 @@ private data class TopDestination(
 private val topDestinations = listOf(
     TopDestination("reader", R.string.tab_reader),
     TopDestination("inventory", R.string.tab_inventory),
+    TopDestination("data", R.string.tab_data),
     TopDestination("tag", R.string.tab_tag),
     TopDestination("misc", R.string.tab_misc)
 )
@@ -122,6 +124,9 @@ fun AppNavigation(
                 InventoryScreen(
                     dbHelper = dbHelper
                 )
+            }
+            composable("data") {
+                DataScreen(dbHelper = dbHelper)
             }
             composable("tag") {
                 TagScreen()

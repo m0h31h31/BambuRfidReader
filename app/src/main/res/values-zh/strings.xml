@@ -11,6 +11,7 @@
     <string name="action_boost_open_bambu">助力：打开 Bambu APP</string>
     <string name="tab_reader">识别</string>
     <string name="tab_inventory">库存</string>
+    <string name="tab_data">数据</string>
     <string name="tab_tag">标签</string>
     <string name="tab_misc">杂项</string>
 
