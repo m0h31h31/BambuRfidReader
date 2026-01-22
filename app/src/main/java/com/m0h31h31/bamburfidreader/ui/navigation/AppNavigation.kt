@@ -47,9 +47,11 @@ private val topDestinations = listOf(
 fun AppNavigation(
     state: NfcUiState,
     voiceEnabled: Boolean,
+    readAllSectors: Boolean,
     ttsReady: Boolean,
     ttsLanguageReady: Boolean,
     onVoiceEnabledChange: (Boolean) -> Unit,
+    onReadAllSectorsChange: (Boolean) -> Unit,
     onRemainingChange: (String, Float, Int?) -> Unit,
     dbHelper: FilamentDbHelper?,
     onBackupDatabase: () -> String,
@@ -130,7 +132,9 @@ fun AppNavigation(
                                 onBackupDatabase = onBackupDatabase,
                                 onImportDatabase = onImportDatabase,
                                 onResetDatabase = onResetDatabase,
-                                appConfigMessage = appConfigMessage
+                                appConfigMessage = appConfigMessage,
+                                readAllSectors = readAllSectors,
+                                onReadAllSectorsChange = onReadAllSectorsChange
                             )
                         }
         }

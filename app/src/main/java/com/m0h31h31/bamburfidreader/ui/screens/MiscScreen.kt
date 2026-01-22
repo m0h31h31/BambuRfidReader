@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -30,6 +31,8 @@ fun MiscScreen(
     onImportDatabase: () -> String = { "" },
     onResetDatabase: () -> String = { "" },
     appConfigMessage: String = "",
+    readAllSectors: Boolean = false,
+    onReadAllSectorsChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uriHandler = LocalUriHandler.current
@@ -67,6 +70,20 @@ fun MiscScreen(
             TextButton(onClick = { uriHandler.openUri(boostLink) }) {
                 Text(text = stringResource(R.string.action_boost_open_bambu))
             }
+            
+            // 添加读取全部扇区的开关
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                Text(text = "读取全部扇区")
+                Switch(
+                    checked = readAllSectors,
+                    onCheckedChange = onReadAllSectorsChange
+                )
+            }
+            
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)

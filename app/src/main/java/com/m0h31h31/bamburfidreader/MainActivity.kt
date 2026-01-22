@@ -206,6 +206,7 @@ class MainActivity : ComponentActivity() {
     private var uiState by mutableStateOf(NfcUiState(status = "正在等待NFC..."))
     private var filamentDbHelper: FilamentDbHelper? = null
     private var voiceEnabled by mutableStateOf(false)
+    private var readAllSectors by mutableStateOf(false) // 控制是否读取全部扇区，默认关闭
     private var tts: TextToSpeech? = null
     private var ttsReady by mutableStateOf(false)
     private var ttsLanguageReady by mutableStateOf(false)
@@ -283,6 +284,7 @@ class MainActivity : ComponentActivity() {
                 AppNavigation(
                     state = uiState,
                     voiceEnabled = voiceEnabled,
+                    readAllSectors = readAllSectors,
                     ttsReady = ttsReady,
                     ttsLanguageReady = ttsLanguageReady,
                     onVoiceEnabledChange = {
@@ -292,6 +294,9 @@ class MainActivity : ComponentActivity() {
                         } else if (!ttsReady) {
                             initTts()
                         }
+                    },
+                    onReadAllSectorsChange = {
+                        readAllSectors = it
                     },
                     onRemainingChange = { trayUid, percent, grams ->
                         updateTrayRemaining(trayUid, percent, grams)
@@ -490,6 +495,63 @@ class MainActivity : ComponentActivity() {
             "数据库重置失败"
         }
     }
+    
+    /**
+     * 保存全部扇区数据到文件
+     */
+    private fun saveAllSectorsData(uidHex: String, rawBlocks: List<ByteArray?>, sectorKeys: List<Pair<ByteArray?, ByteArray?>>) {
+        try {
+            // 创建rfid_files目录
+            val externalDir = getExternalFilesDir(null)
+            if (externalDir == null) {
+                logDebug("无法访问存储目录")
+                return
+            }
+            val rfidFilesDir = File(externalDir, "rfid_files")
+            if (!rfidFilesDir.exists()) {
+                rfidFilesDir.mkdirs()
+            }
+            
+            // 创建以UID命名的文件
+            val fileName = "${uidHex}.txt"
+            val outputFile = File(rfidFilesDir, fileName)
+            
+            // 写入数据
+            outputFile.bufferedWriter().use { writer ->
+                writer.write("RFID Tag UID: $uidHex\n")
+                writer.write("==============================\n")
+                
+                // 写入密钥信息
+                writer.write("密钥信息:\n")
+                for (sector in 0 until 16) {
+                    val keyA = sectorKeys[sector].first
+                    val keyB = sectorKeys[sector].second
+                    writer.write("  扇区 $sector - 密钥A: ${keyA?.toHex().orEmpty()}, 密钥B: ${keyB?.toHex().orEmpty()}\n")
+                }
+                writer.write("==============================\n\n")
+                
+                // 按扇区组织数据
+                for (sector in 0 until 16) {
+                    writer.write("扇区 $sector:\n")
+                    for (block in 0 until 4) {
+                        val blockIndex = sector * 4 + block
+                        if (blockIndex < rawBlocks.size) {
+                            val data = rawBlocks[blockIndex]
+                            val hex = data?.toHex().orEmpty()
+                            writer.write("  区块 $blockIndex: $hex\n")
+                        }
+                    }
+                    writer.write("\n")
+                }
+            }
+            
+            logDebug("全部扇区数据已保存到: ${outputFile.absolutePath}")
+            LogCollector.append(this, "I", "全部扇区数据已保存到: ${outputFile.absolutePath}")
+        } catch (e: Exception) {
+            logDebug("保存扇区数据失败: ${e.message}")
+            LogCollector.append(this, "E", "保存扇区数据失败: ${e.message}")
+        }
+    }
 
     private fun initTts() {
         tts?.stop()
@@ -608,16 +670,24 @@ class MainActivity : ComponentActivity() {
 
         val keysA = deriveKeys(uid, INFO_A)
         val keysB = deriveKeys(uid, INFO_B)
-        val keyA0 = keysA.getOrNull(0)
-        val keyB0 = keysB.getOrNull(0)
-        val keyA1 = keysA.getOrNull(1)
-        val keyB1 = keysB.getOrNull(1)
-        val keyA2 = keysA.getOrNull(2)
-        val keyB2 = keysB.getOrNull(2)
-        val keyA3 = keysA.getOrNull(3)
-        val keyB3 = keysB.getOrNull(3)
-        val keyA4 = keysA.getOrNull(4)
-        val keyB4 = keysB.getOrNull(4)
+        
+        // 生成所有16个扇区的密钥
+        val sectorKeys = ArrayList<Pair<ByteArray?, ByteArray?>>()
+        for (i in 0 until 16) {
+            sectorKeys.add(Pair(keysA.getOrNull(i), keysB.getOrNull(i)))
+        }
+        
+        // 获取前5个扇区的密钥（保持向后兼容）
+        val keyA0 = sectorKeys.getOrNull(0)?.first
+        val keyB0 = sectorKeys.getOrNull(0)?.second
+        val keyA1 = sectorKeys.getOrNull(1)?.first
+        val keyB1 = sectorKeys.getOrNull(1)?.second
+        val keyA2 = sectorKeys.getOrNull(2)?.first
+        val keyB2 = sectorKeys.getOrNull(2)?.second
+        val keyA3 = sectorKeys.getOrNull(3)?.first
+        val keyB3 = sectorKeys.getOrNull(3)?.second
+        val keyA4 = sectorKeys.getOrNull(4)?.first
+        val keyB4 = sectorKeys.getOrNull(4)?.second
 
         val keyA0Hex = keyA0?.toHex().orEmpty()
         val keyB0Hex = keyB0?.toHex().orEmpty()
@@ -625,11 +695,16 @@ class MainActivity : ComponentActivity() {
         val keyB1Hex = keyB1?.toHex().orEmpty()
         val keyA4Hex = keyA4?.toHex().orEmpty()
         val keyB4Hex = keyB4?.toHex().orEmpty()
-        logDebug(
-            "密钥A0: $keyA0Hex, 密钥B0: $keyB0Hex, 密钥A1: $keyA1Hex, 密钥B1: $keyB1Hex, 密钥A3: ${
-                keyA3?.toHex().orEmpty()
-            }, 密钥B3: ${keyB3?.toHex().orEmpty()}, 密钥A4: $keyA4Hex, 密钥B4: $keyB4Hex"
-        )
+        
+        // 记录密钥信息
+        val keyLog = StringBuilder()
+        for (i in 0 until 16) {
+            val keyA = sectorKeys[i].first
+            val keyB = sectorKeys[i].second
+            keyLog.append("密钥A$i: ${keyA?.toHex().orEmpty()}, 密钥B$i: ${keyB?.toHex().orEmpty()}")
+            if (i < 15) keyLog.append("; ")
+        }
+        logDebug(keyLog.toString())
 
         val mifare = MifareClassic.get(tag)
             ?: return NfcUiState(
@@ -645,10 +720,7 @@ class MainActivity : ComponentActivity() {
         return try {
             mifare.connect()
             LogCollector.append(applicationContext, "I", "已连接 MIFARE Classic")
-            val blockData = MutableList<ByteArray?>(8) { null }
-            val rawBlocks = MutableList<ByteArray?>(18) { null }
-            var block12: ByteArray? = null
-            var block16: ByteArray? = null
+            val rawBlocks = MutableList<ByteArray?>(64) { null } // MIFARE Classic 1K 总共有64个区块
             val errors = ArrayList<String>(2)
 
             val sector0 = readSector(mifare, 0, keyA0, keyB0)
@@ -656,7 +728,6 @@ class MainActivity : ComponentActivity() {
                 logDebug("扇区0读取成功，读取到 ${sector0.blocks.size} 个区块")
                 LogCollector.append(applicationContext, "I", "扇区0读取成功")
                 sector0.blocks.forEachIndexed { index, data ->
-                    blockData[index] = data
                     if (index < rawBlocks.size) {
                         rawBlocks[index] = data
                     }
@@ -667,17 +738,11 @@ class MainActivity : ComponentActivity() {
                 errors.add(sector0.error)
             }
 
-            try {
-                Thread.sleep(15)
-            } catch (_: InterruptedException) {
-                // Ignore.
-            }
             val sector1 = readSector(mifare, 1, keyA1, keyB1)
             if (sector1.blocks.isNotEmpty()) {
                 logDebug("扇区1读取成功，读取到 ${sector1.blocks.size} 个区块")
                 LogCollector.append(applicationContext, "I", "扇区1读取成功")
                 sector1.blocks.forEachIndexed { index, data ->
-                    blockData[index + 4] = data
                     val rawIndex = index + 4
                     if (rawIndex < rawBlocks.size) {
                         rawBlocks[rawIndex] = data
@@ -689,11 +754,6 @@ class MainActivity : ComponentActivity() {
                 errors.add(sector1.error)
             }
 
-            try {
-                Thread.sleep(15)
-            } catch (_: InterruptedException) {
-                // Ignore.
-            }
             val sector2 = readSector(mifare, 2, keyA2, keyB2)
             if (sector2.blocks.isNotEmpty()) {
                 logDebug("扇区2认证成功，读取到 ${sector2.blocks.size} 个区块")
@@ -709,54 +769,64 @@ class MainActivity : ComponentActivity() {
                 LogCollector.append(applicationContext, "W", "扇区2读取失败: ${sector2.error}")
             }
 
-            try {
-                Thread.sleep(15)
-            } catch (_: InterruptedException) {
-                // Ignore.
-            }
             val sector3 = readSector(mifare, 3, keyA3, keyB3)
             if (sector3.blocks.isNotEmpty()) {
-                block12 = sector3.blocks.getOrNull(0)
                 sector3.blocks.forEachIndexed { index, data ->
                     val rawIndex = index + 12
                     if (rawIndex < rawBlocks.size) {
                         rawBlocks[rawIndex] = data
                     }
                 }
-                if (block12 != null) {
-                    logDebug("扇区3读取区块12: ${block12?.toHex().orEmpty()}")
-                    LogCollector.append(applicationContext, "I", "扇区3读取成功")
-                } else {
-                    logDebug("扇区3未读取到区块12")
-                }
+                logDebug("扇区3读取成功")
+                LogCollector.append(applicationContext, "I", "扇区3读取成功")
             } else if (sector3.error.isNotBlank()) {
                 logDebug("扇区3读取失败: ${sector3.error}")
                 LogCollector.append(applicationContext, "W", "扇区3读取失败: ${sector3.error}")
             }
 
-            try {
-                Thread.sleep(15)
-            } catch (_: InterruptedException) {
-                // Ignore.
-            }
             val sector4 = readSector(mifare, 4, keyA4, keyB4)
             if (sector4.blocks.isNotEmpty()) {
-                block16 = sector4.blocks.getOrNull(0)
                 sector4.blocks.forEachIndexed { index, data ->
                     val rawIndex = index + 16
                     if (rawIndex < rawBlocks.size) {
                         rawBlocks[rawIndex] = data
                     }
                 }
-                if (block16 != null) {
-                    logDebug("扇区4读取区块16: ${block16?.toHex().orEmpty()}")
-                    LogCollector.append(applicationContext, "I", "扇区4读取成功")
-                } else {
-                    logDebug("扇区4未读取到区块16")
-                }
+                logDebug("扇区4读取成功")
+                LogCollector.append(applicationContext, "I", "扇区4读取成功")
             } else if (sector4.error.isNotBlank()) {
                 logDebug("扇区4读取失败: ${sector4.error}")
                 LogCollector.append(applicationContext, "W", "扇区4读取失败: ${sector4.error}")
+            }
+
+            // 根据配置决定是否读取全部扇区
+            if (readAllSectors) {
+                // 读取扇区5-15
+                for (sector in 5 until 16) {
+                    val sectorKey = sectorKeys.getOrNull(sector)
+                    val keyA = sectorKey?.first
+                    val keyB = sectorKey?.second
+                    val sectorResult = readSector(mifare, sector, keyA, keyB) // 使用对应扇区的密钥
+                    if (sectorResult.blocks.isNotEmpty()) {
+                        sectorResult.blocks.forEachIndexed { index, data ->
+                            val rawIndex = sector * 4 + index
+                            if (rawIndex < rawBlocks.size) {
+                                rawBlocks[rawIndex] = data
+                            }
+                        }
+                        logDebug("扇区${sector}读取成功，读取到 ${sectorResult.blocks.size} 个区块")
+                        LogCollector.append(applicationContext, "I", "扇区${sector}读取成功")
+                    } else if (sectorResult.error.isNotBlank()) {
+                        logDebug("扇区${sector}读取失败: ${sectorResult.error}")
+                        LogCollector.append(applicationContext, "W", "扇区${sector}读取失败: ${sectorResult.error}")
+                    }
+                }
+                
+                // 保存全部扇区数据到文件
+                saveAllSectorsData(uidHex, rawBlocks, sectorKeys)
+            } else {
+                logDebug("未读取全部扇区（按配置跳过）")
+                LogCollector.append(applicationContext, "I", "未读取全部扇区（按配置跳过）")
             }
 
             rawBlocks.forEachIndexed { index, data ->
@@ -789,13 +859,28 @@ class MainActivity : ComponentActivity() {
                 LogCollector.append(applicationContext, "W", "??????9??UID")
             }
 
-            val blockHexes = blockData.map { data -> data?.toHex().orEmpty() }
-            blockHexes.forEachIndexed { index, value ->
-                if (value.isNotBlank()) {
-                    logDebug("区块 $index: $value")
+            // 从rawBlocks中提取所需的区块数据
+            val blocksForParsing = listOf(
+                rawBlocks.getOrNull(0),  // block0
+                rawBlocks.getOrNull(1),  // block1
+                rawBlocks.getOrNull(2),  // block2
+                rawBlocks.getOrNull(3),  // block3
+                rawBlocks.getOrNull(4),  // block4
+                rawBlocks.getOrNull(5),  // block5
+                rawBlocks.getOrNull(6),  // block6
+                rawBlocks.getOrNull(7)   // block7
+            )
+            val block12 = rawBlocks.getOrNull(12)
+            val block16 = rawBlocks.getOrNull(16)
+            
+            // 打印要解析的区块数据
+            blocksForParsing.forEachIndexed { index, data ->
+                val hex = data?.toHex().orEmpty()
+                if (hex.isNotBlank()) {
+                    logDebug("区块 $index: $hex")
                 }
             }
-            val parsedBlockData = parseBlocks(blockData, block12, block16)
+            val parsedBlockData = parseBlocks(blocksForParsing, block12, block16)
             val totalWeightGrams = extractWeightGrams(parsedBlockData.fields)
             // 对于新刷的耗材，如果克重为0且从NFC标签中读取到了克重，则使用NFC读取的克重
             if (remainingGrams == 0 && totalWeightGrams > 0) {
@@ -842,6 +927,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+            val blockHexes = blocksForParsing.map { data -> data?.toHex().orEmpty() }
             val status = when {
                 errors.isEmpty() -> uiString(R.string.status_read_success)
                 blockHexes.any { it.isNotBlank() } -> uiString(R.string.status_read_partial)
@@ -1334,12 +1420,14 @@ internal fun syncFilamentDatabase(context: Context, dbHelper: FilamentDbHelper) 
 
     val db = dbHelper.writableDatabase
     val colorLastModifiedValue = colorSource.lastModified.toString()
+    val typeLastModifiedValue = typeSource.lastModified.toString()
     val storedColorVersion = dbHelper.getMetaValue(db, FILAMENT_META_KEY_LAST_MODIFIED)
+    val storedTypeVersion = dbHelper.getMetaValue(db, "filaments_type_mapping_last_modified")
     val currentLocale = Locale.getDefault().language.lowercase(Locale.US)
     val storedLocale = dbHelper.getMetaValue(db, FILAMENT_META_KEY_LOCALE)
     
     // 检查是否需要更新
-    if (storedColorVersion == colorLastModifiedValue && storedLocale == currentLocale) {
+    if (storedColorVersion == colorLastModifiedValue && storedTypeVersion == typeLastModifiedValue && storedLocale == currentLocale) {
         logDebug("配置文件未变化，跳过更新")
         return
     }
@@ -1383,6 +1471,7 @@ internal fun syncFilamentDatabase(context: Context, dbHelper: FilamentDbHelper) 
         }
         
         dbHelper.setMetaValue(db, FILAMENT_META_KEY_LAST_MODIFIED, colorLastModifiedValue)
+        dbHelper.setMetaValue(db, "filaments_type_mapping_last_modified", typeLastModifiedValue)
         dbHelper.setMetaValue(db, FILAMENT_META_KEY_LOCALE, currentLocale)
         db.setTransactionSuccessful()
         logDebug("配置数据写入完成: ${entries.size} 个颜色配置, ${typeEntries.size} 个类型映射")
