@@ -2067,36 +2067,34 @@ class FilamentDbHelper(context: Context) :
             selectionArgs = null
         } else {
             selection = """
-                t.tray_uid LIKE ? OR
-                f.fila_id LIKE ? OR
-                f.fila_type LIKE ? OR
-                f.color_name_zh LIKE ? OR
-                f.fila_color_code LIKE ? OR
-                f.fila_color_type LIKE ? OR
-                f.color_values LIKE ? OR
-                CAST(t.remaining_percent AS TEXT) LIKE ?
+                tray_uid LIKE ? OR
+                material_type LIKE ? OR
+                material_detailed_type LIKE ? OR
+                color_name LIKE ? OR
+                color_code LIKE ? OR
+                color_type LIKE ? OR
+                color_values LIKE ? OR
+                CAST(remaining_percent AS TEXT) LIKE ?
             """.trimIndent()
             val pattern = "%$trimmed%"
             selectionArgs = Array(8) { pattern }
         }
         val sql = """
             SELECT 
-                t.tray_uid,
-                COALESCE(f.fila_type, '未知') as material_type,
-                COALESCE(f.fila_detailed_type, '未知') as material_detailed_type,
-                COALESCE(f.color_name_zh, '未知') as color_name,
-                COALESCE(f.fila_color_code, '') as color_code,
-                COALESCE(f.fila_color_type, '') as color_type,
-                COALESCE(f.color_values, '') as color_values,
-                t.remaining_percent,
-                t.remaining_grams
+                tray_uid,
+                material_type,
+                material_detailed_type,
+                color_name,
+                color_code,
+                color_type,
+                color_values,
+                remaining_percent,
+                remaining_grams
             FROM 
-                $TRAY_UID_TABLE t
-            LEFT JOIN 
-                $FILAMENT_TABLE f ON t.filament_id = f.id
+                "$TRAY_UID_TABLE"
             ${if (selection != null) "WHERE $selection" else ""}
             ORDER BY 
-                t.tray_uid ASC
+                tray_uid ASC
         """.trimIndent()
         val cursor = db.rawQuery(sql, selectionArgs)
         cursor.use {
