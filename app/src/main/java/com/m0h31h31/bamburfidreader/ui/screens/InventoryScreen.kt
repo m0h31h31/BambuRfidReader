@@ -408,10 +408,12 @@ fun InventoryScreen(
                                                 verticalArrangement = Arrangement.spacedBy(2.dp)
                                             ) {
                                                 Text(
-                                                    text = item.materialType.ifBlank {
-                                                        stringResource(
-                                                            R.string.inventory_unknown_material
-                                                        )
+                                                    text = item.materialDetailedType.ifBlank {
+                                                        item.materialType.ifBlank {
+                                                            stringResource(
+                                                                R.string.inventory_unknown_material
+                                                            )
+                                                        }
                                                     },
                                                     style = MaterialTheme.typography.bodyMedium,
                                                     fontWeight = FontWeight.SemiBold
