@@ -6,7 +6,6 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import android.nfc.NfcAdapter
 import android.nfc.Tag
-import android.nfc.tech.MifareClassic
 import android.os.Build
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
@@ -23,28 +22,20 @@ import com.m0h31h31.bamburfidreader.ui.navigation.AppNavigation
 import com.m0h31h31.bamburfidreader.ui.theme.BambuRfidReaderTheme
 import com.m0h31h31.bamburfidreader.util.normalizeColorValue
 import com.m0h31h31.bamburfidreader.utils.ConfigManager
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
-import javax.crypto.Mac
-import javax.crypto.spec.SecretKeySpec
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
-import kotlin.math.ceil
 import org.json.JSONArray
 import org.json.JSONObject
 
-private const val KEY_LENGTH_BYTES = 6
-private const val SECTOR_COUNT = 16
 private const val LOG_TAG = "BambuRfidReader"
 private const val FILAMENT_JSON_NAME = "filaments_color_codes.json"
 private const val FILAMENTS_TYPE_MAPPING_FILE = "filaments_type_mapping.json"
@@ -59,26 +50,6 @@ private const val TRAY_UID_TABLE = "filament_inventory"
 private const val DEFAULT_REMAINING_PERCENT = 100
 private const val LOG_DIR_NAME = "logs"
 private const val LOG_FILE_NAME = "bambu_rfid.log"
-private val HKDF_SALT = byteArrayOf(
-    0x9a.toByte(),
-    0x75.toByte(),
-    0x9c.toByte(),
-    0xf2.toByte(),
-    0xc4.toByte(),
-    0xf7.toByte(),
-    0xca.toByte(),
-    0xff.toByte(),
-    0x22.toByte(),
-    0x2c.toByte(),
-    0xb9.toByte(),
-    0x76.toByte(),
-    0x9b.toByte(),
-    0x41.toByte(),
-    0xbc.toByte(),
-    0x96.toByte()
-)
-private val INFO_A = "RFID-A\u0000".toByteArray(Charsets.US_ASCII)
-private val INFO_B = "RFID-B\u0000".toByteArray(Charsets.US_ASCII)
 
 object LogCollector {
     private val lock = Any()
@@ -217,6 +188,8 @@ class MainActivity : ComponentActivity() {
     private var ttsLanguageReady by mutableStateOf(false)
     private var lastSpokenKey: String? = null
     private var shouldNavigateToReader by mutableStateOf(false)
+    // 原始读卡临时缓存：readTag 仅负责写入；解析函数从此读取。
+    private var latestRawTagData: RawTagReadData? = null
 
     private val readerCallback = NfcAdapter.ReaderCallback { tag ->
         logEvent("收到NFC标签回调")
@@ -667,738 +640,111 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun readTag(tag: Tag): NfcUiState {
-        val uid = tag.id ?: return NfcUiState(status = uiString(R.string.status_uid_missing))
-        val uidHex = uid.toHex()
-        logDebug("UID: $uidHex")
-        LogCollector.append(applicationContext, "I", "开始读取标签 UID: $uidHex")
-        logDebug("Tag tech list: ${tag.techList.joinToString()}")
+        // 第一阶段：仅做读卡，返回原始块数据，不做业务解析。
+        val rawResult = NfcTagReader.readRaw(
+            tag = tag,
+            readAllSectors = readAllSectors,
+            logger = ::logDebug,
+            appendLog = { level, message -> LogCollector.append(applicationContext, level, message) }
+        )
 
-        val keysA = deriveKeys(uid, INFO_A)
-        val keysB = deriveKeys(uid, INFO_B)
-        
-        // 生成所有16个扇区的密钥
-        val sectorKeys = ArrayList<Pair<ByteArray?, ByteArray?>>()
-        for (i in 0 until 16) {
-            sectorKeys.add(Pair(keysA.getOrNull(i), keysB.getOrNull(i)))
-        }
-        
-        // 获取前5个扇区的密钥（保持向后兼容）
-        val keyA0 = sectorKeys.getOrNull(0)?.first
-        val keyB0 = sectorKeys.getOrNull(0)?.second
-        val keyA1 = sectorKeys.getOrNull(1)?.first
-        val keyB1 = sectorKeys.getOrNull(1)?.second
-        val keyA2 = sectorKeys.getOrNull(2)?.first
-        val keyB2 = sectorKeys.getOrNull(2)?.second
-        val keyA3 = sectorKeys.getOrNull(3)?.first
-        val keyB3 = sectorKeys.getOrNull(3)?.second
-        val keyA4 = sectorKeys.getOrNull(4)?.first
-        val keyB4 = sectorKeys.getOrNull(4)?.second
-
-        val keyA0Hex = keyA0?.toHex().orEmpty()
-        val keyB0Hex = keyB0?.toHex().orEmpty()
-        val keyA1Hex = keyA1?.toHex().orEmpty()
-        val keyB1Hex = keyB1?.toHex().orEmpty()
-        val keyA4Hex = keyA4?.toHex().orEmpty()
-        val keyB4Hex = keyB4?.toHex().orEmpty()
-        
-        // 记录密钥信息
-        val keyLog = StringBuilder()
-        for (i in 0 until 16) {
-            val keyA = sectorKeys[i].first
-            val keyB = sectorKeys[i].second
-            keyLog.append("密钥A$i: ${keyA?.toHex().orEmpty()}, 密钥B$i: ${keyB?.toHex().orEmpty()}")
-            if (i < 15) keyLog.append("; ")
-        }
-        logDebug(keyLog.toString())
-
-        val mifare = MifareClassic.get(tag)
-            ?: return NfcUiState(
-                status = uiString(R.string.error_mifare_unsupported),
-                uidHex = uidHex,
-                keyA0Hex = keyA0Hex,
-                keyB0Hex = keyB0Hex,
-                keyA1Hex = keyA1Hex,
-                keyB1Hex = keyB1Hex,
-                error = uiString(R.string.error_mifare_unsupported)
-            )
-
-        return try {
-            mifare.connect()
-            LogCollector.append(applicationContext, "I", "已连接 MIFARE Classic")
-            val rawBlocks = MutableList<ByteArray?>(64) { null } // MIFARE Classic 1K 总共有64个区块
-            val errors = ArrayList<String>(2)
-
-            val sector0 = readSector(mifare, 0, keyA0, keyB0)
-            if (sector0.blocks.isNotEmpty()) {
-                logDebug("扇区0读取成功，读取到 ${sector0.blocks.size} 个区块")
-                LogCollector.append(applicationContext, "I", "扇区0读取成功")
-                sector0.blocks.forEachIndexed { index, data ->
-                    if (index < rawBlocks.size) {
-                        rawBlocks[index] = data
-                    }
-                }
-            } else if (sector0.error.isNotBlank()) {
-                logDebug("扇区0读取失败: ${sector0.error}")
-                LogCollector.append(applicationContext, "W", "扇区0读取失败: ${sector0.error}")
-                errors.add(sector0.error)
-            }
-
-            val sector1 = readSector(mifare, 1, keyA1, keyB1)
-            if (sector1.blocks.isNotEmpty()) {
-                logDebug("扇区1读取成功，读取到 ${sector1.blocks.size} 个区块")
-                LogCollector.append(applicationContext, "I", "扇区1读取成功")
-                sector1.blocks.forEachIndexed { index, data ->
-                    val rawIndex = index + 4
-                    if (rawIndex < rawBlocks.size) {
-                        rawBlocks[rawIndex] = data
-                    }
-                }
-            } else if (sector1.error.isNotBlank()) {
-                logDebug("扇区1读取失败: ${sector1.error}")
-                LogCollector.append(applicationContext, "W", "扇区1读取失败: ${sector1.error}")
-                errors.add(sector1.error)
-            }
-
-            val sector2 = readSector(mifare, 2, keyA2, keyB2)
-            if (sector2.blocks.isNotEmpty()) {
-                logDebug("扇区2认证成功，读取到 ${sector2.blocks.size} 个区块")
-                LogCollector.append(applicationContext, "I", "扇区2读取成功")
-                sector2.blocks.forEachIndexed { index, data ->
-                    val rawIndex = index + 8
-                    if (rawIndex < rawBlocks.size) {
-                        rawBlocks[rawIndex] = data
-                    }
-                }
-            } else if (sector2.error.isNotBlank()) {
-                logDebug("扇区2认证失败: ${sector2.error}")
-                LogCollector.append(applicationContext, "W", "扇区2读取失败: ${sector2.error}")
-            }
-
-            val sector3 = readSector(mifare, 3, keyA3, keyB3)
-            if (sector3.blocks.isNotEmpty()) {
-                sector3.blocks.forEachIndexed { index, data ->
-                    val rawIndex = index + 12
-                    if (rawIndex < rawBlocks.size) {
-                        rawBlocks[rawIndex] = data
-                    }
-                }
-                logDebug("扇区3读取成功")
-                LogCollector.append(applicationContext, "I", "扇区3读取成功")
-            } else if (sector3.error.isNotBlank()) {
-                logDebug("扇区3读取失败: ${sector3.error}")
-                LogCollector.append(applicationContext, "W", "扇区3读取失败: ${sector3.error}")
-            }
-
-            val sector4 = readSector(mifare, 4, keyA4, keyB4)
-            if (sector4.blocks.isNotEmpty()) {
-                sector4.blocks.forEachIndexed { index, data ->
-                    val rawIndex = index + 16
-                    if (rawIndex < rawBlocks.size) {
-                        rawBlocks[rawIndex] = data
-                    }
-                }
-                logDebug("扇区4读取成功")
-                LogCollector.append(applicationContext, "I", "扇区4读取成功")
-            } else if (sector4.error.isNotBlank()) {
-                logDebug("扇区4读取失败: ${sector4.error}")
-                LogCollector.append(applicationContext, "W", "扇区4读取失败: ${sector4.error}")
-            }
-
-            // 根据配置决定是否读取全部扇区
-            if (readAllSectors) {
-                // 读取扇区5-15
-                for (sector in 5 until 16) {
-                    val sectorKey = sectorKeys.getOrNull(sector)
-                    val keyA = sectorKey?.first
-                    val keyB = sectorKey?.second
-                    val sectorResult = readSector(mifare, sector, keyA, keyB) // 使用对应扇区的密钥
-                    if (sectorResult.blocks.isNotEmpty()) {
-                        sectorResult.blocks.forEachIndexed { index, data ->
-                            val rawIndex = sector * 4 + index
-                            if (rawIndex < rawBlocks.size) {
-                                rawBlocks[rawIndex] = data
-                            }
-                        }
-                        logDebug("扇区${sector}读取成功，读取到 ${sectorResult.blocks.size} 个区块")
-                        LogCollector.append(applicationContext, "I", "扇区${sector}读取成功")
-                    } else if (sectorResult.error.isNotBlank()) {
-                        logDebug("扇区${sector}读取失败: ${sectorResult.error}")
-                        LogCollector.append(applicationContext, "W", "扇区${sector}读取失败: ${sectorResult.error}")
-                    }
-                }
-                
-                // 保存全部扇区数据到文件
-                saveAllSectorsData(uidHex, rawBlocks, sectorKeys)
-            } else {
-                logDebug("未读取全部扇区（按配置跳过）")
-                LogCollector.append(applicationContext, "I", "未读取全部扇区（按配置跳过）")
-            }
-
-            rawBlocks.forEachIndexed { index, data ->
-                val hex = data?.toHex().orEmpty()
-                if (hex.isNotBlank()) {
-                    logDebug("原始区块 $index: $hex")
-                } else {
-                    logDebug("原始区块 $index: <空>")
-                }
-            }
-
-            val trayUidHex = rawBlocks.getOrNull(9)?.toHex().orEmpty()
-            var remainingPercent = DEFAULT_REMAINING_PERCENT.toFloat()
-            // 从rawBlocks中提取所需的区块数据
-            val blocksForParsing = listOf(
-                rawBlocks.getOrNull(0),  // block0
-                rawBlocks.getOrNull(1),  // block1
-                rawBlocks.getOrNull(2),  // block2
-                rawBlocks.getOrNull(3),  // block3
-                rawBlocks.getOrNull(4),  // block4
-                rawBlocks.getOrNull(5),  // block5
-                rawBlocks.getOrNull(6),  // block6
-                rawBlocks.getOrNull(7)   // block7
-            )
-            val block12 = rawBlocks.getOrNull(12)
-            val block16 = rawBlocks.getOrNull(16)
-            
-            // 打印要解析的区块数据
-            blocksForParsing.forEachIndexed { index, data ->
-                val hex = data?.toHex().orEmpty()
-                if (hex.isNotBlank()) {
-                    logDebug("区块 $index: $hex")
-                }
-            }
-            val parsedBlockData = parseBlocks(blocksForParsing, block12, block16)
-            val totalWeightGrams = extractWeightGrams(parsedBlockData.fields)
-            var remainingGrams = 0
-            if (trayUidHex.isNotBlank()) {
-                val dbHelper = filamentDbHelper
-                val db = dbHelper?.writableDatabase
-                if (db != null) {
-                    val stored = dbHelper.getTrayRemainingPercent(db, trayUidHex)
-                    val storedGrams = dbHelper.getTrayRemainingGrams(db, trayUidHex)
-                    remainingPercent = stored ?: DEFAULT_REMAINING_PERCENT.toFloat()
-                    // 对于新刷的耗材，使用从NFC标签中读取的totalWeightGrams作为初始克重
-                    remainingGrams = storedGrams ?: 0
-                    // 如果克重为0且从NFC标签中读取到了克重，则使用NFC读取的克重
-                    if (remainingGrams == 0 && totalWeightGrams > 0) {
-                        remainingGrams = totalWeightGrams
-                    }
-                    // 存储总克重到数据库
-                    dbHelper.upsertTrayRemaining(db, trayUidHex, remainingPercent, remainingGrams, totalWeightGrams)
-                }
-                logDebug("??UID(??9): $trayUidHex, ??: $remainingPercent%")
-                LogCollector.append(applicationContext, "I", "??UID(??9): $trayUidHex, ??: $remainingPercent%")
-            } else {
-                logDebug("??????9??UID")
-                LogCollector.append(applicationContext, "W", "??????9??UID")
-            }
-            val displayData = buildDisplayData(parsedBlockData, filamentDbHelper)
-            parsedBlockData.fields.forEach { field ->
-                logDebug("解析字段: ${field.label}=${field.value}")
-            }
-            if (parsedBlockData.colorValues.isNotEmpty()) {
-                logDebug("读取颜色值: ${parsedBlockData.colorValues.joinToString(separator = ",")}")
-            }
-            logDebug(
-                "展示数据: 类型=${displayData.type}, 颜色名=${displayData.colorName}, 颜色代码=${displayData.colorCode}, 颜色类型=${displayData.colorType}, 颜色列表=${
-                    displayData.colorValues.joinToString(
-                        separator = ","
+        return when (rawResult) {
+            is RawTagReadResult.Success -> {
+                // 成功后先缓存到临时变量，解析流程只依赖该临时变量。
+                latestRawTagData = rawResult.data
+                if (readAllSectors) {
+                    // 按配置导出全部扇区原始数据（调试/排障用途）。
+                    saveAllSectorsData(
+                        uidHex = rawResult.data.uidHex,
+                        rawBlocks = rawResult.data.rawBlocks,
+                        sectorKeys = rawResult.data.sectorKeys
                     )
-                }"
-            )
-            if (trayUidHex.isNotBlank()) {
-                val dbHelper = filamentDbHelper
-                val db = dbHelper?.writableDatabase
-                if (db != null) {
-                    // 获取filament_id
-                    val filamentId = dbHelper.getFilamentId(
-                        db,
-                        parsedBlockData.materialId,
-                        displayData.colorCode
+                }
+                // 第二阶段：独立解析与入库。
+                parseLatestRawTagData()
+            }
+
+            is RawTagReadResult.Failure -> {
+                // 读卡失败直接映射为 UI 状态，不进入解析流程。
+                when (rawResult.reason) {
+                    RawTagReadFailureReason.UID_MISSING -> NfcUiState(
+                        status = uiString(R.string.status_uid_missing)
                     )
-                    dbHelper.upsertTrayInventory(
-                        db,
-                        trayUidHex,
-                        remainingPercent,
-                        remainingGrams,
-                        totalWeightGrams,
-                        filamentId,
-                        materialId = parsedBlockData.materialId,
-                        materialType = parsedBlockData.filamentType,
-                        detailedMaterialType = parsedBlockData.detailedFilamentType,
-                        colorName = displayData.colorName,
-                        colorCode = displayData.colorCode,
-                        colorType = displayData.colorType,
-                        colorValues = displayData.colorValues.joinToString(separator = ",")
+
+                    RawTagReadFailureReason.MIFARE_UNSUPPORTED -> NfcUiState(
+                        status = uiString(R.string.error_mifare_unsupported),
+                        uidHex = rawResult.uidHex,
+                        keyA0Hex = rawResult.keyA0Hex,
+                        keyB0Hex = rawResult.keyB0Hex,
+                        keyA1Hex = rawResult.keyA1Hex,
+                        keyB1Hex = rawResult.keyB1Hex,
+                        error = uiString(R.string.error_mifare_unsupported)
+                    )
+
+                    RawTagReadFailureReason.EXCEPTION -> NfcUiState(
+                        status = uiString(R.string.status_read_failed),
+                        uidHex = rawResult.uidHex,
+                        keyA0Hex = rawResult.keyA0Hex,
+                        keyB0Hex = rawResult.keyB0Hex,
+                        keyA1Hex = rawResult.keyA1Hex,
+                        keyB1Hex = rawResult.keyB1Hex,
+                        error = rawResult.message.ifBlank { uiString(R.string.error_read_exception) }
                     )
                 }
             }
-            val blockHexes = blocksForParsing.map { data -> data?.toHex().orEmpty() }
-            val status = when {
-                errors.isEmpty() -> uiString(R.string.status_read_success)
-                blockHexes.any { it.isNotBlank() } -> uiString(R.string.status_read_partial)
-                else -> uiString(R.string.status_read_failed)
-            }
-            if (errors.isNotEmpty()) {
-                logDebug("读取错误: ${errors.joinToString(separator = "; ")}")
-            }
-
-            NfcUiState(
-                status = status,
-                uidHex = uidHex,
-                keyA0Hex = keyA0Hex,
-                keyB0Hex = keyB0Hex,
-                keyA1Hex = keyA1Hex,
-                keyB1Hex = keyB1Hex,
-                blockHexes = blockHexes,
-                parsedFields = parsedBlockData.fields,
-                displayType = displayData.type,
-                displayColorName = displayData.colorName,
-                displayColorCode = displayData.colorCode,
-                displayColorType = displayData.colorType,
-                displayColors = displayData.colorValues,
-                secondaryFields = displayData.secondaryFields,
-                trayUidHex = trayUidHex,
-                remainingPercent = remainingPercent,
-                remainingGrams = remainingGrams,
-                totalWeightGrams = totalWeightGrams,
-                error = errors.joinToString(separator = "; ")
-            )
-        } catch (e: Exception) {
-            logDebug("读取异常: ${e.message}")
-            LogCollector.append(applicationContext, "E", "读取异常: ${e.message}")
-            NfcUiState(
-                status = uiString(R.string.status_read_failed),
-                uidHex = uidHex,
-                keyA0Hex = keyA0Hex,
-                keyB0Hex = keyB0Hex,
-                keyA1Hex = keyA1Hex,
-                keyB1Hex = keyB1Hex,
-                error = e.message ?: uiString(R.string.error_read_exception)
-            )
-        } finally {
-            try {
-                mifare.close()
-                LogCollector.append(applicationContext, "I", "已断开 MIFARE Classic")
-            } catch (_: IOException) {
-                // Ignore close errors.
-            }
-        }
-    }
-}
-
-
-
-
-
-
-
-
-private data class SectorReadResult(
-    val blocks: List<ByteArray>,
-    val error: String
-)
-
-private fun readSector(
-    mifare: MifareClassic,
-    sectorIndex: Int,
-    keyA: ByteArray?,
-    keyB: ByteArray?
-): SectorReadResult {
-    val authenticated = (keyA != null && mifare.authenticateSectorWithKeyA(sectorIndex, keyA)) ||
-            (keyB != null && mifare.authenticateSectorWithKeyB(sectorIndex, keyB))
-    if (!authenticated) {
-        return SectorReadResult(emptyList(), "扇区 $sectorIndex 认证失败")
-    }
-
-    val blockCount = mifare.getBlockCountInSector(sectorIndex)
-    val startBlock = mifare.sectorToBlock(sectorIndex)
-    val blocks = ArrayList<ByteArray>(blockCount)
-    for (offset in 0 until blockCount) {
-        blocks.add(mifare.readBlock(startBlock + offset))
-    }
-    return SectorReadResult(blocks, "")
-}
-
-private fun parseBlocks(
-    blocks: List<ByteArray?>,
-    block12: ByteArray?,
-    block16: ByteArray?
-): ParsedBlockData {
-    val parsed = ArrayList<ParsedField>()
-    var materialId = ""
-    var filamentType = ""
-    var detailedFilamentType = ""
-    val colorValues = ArrayList<String>()
-
-    val block0 = blocks.getOrNull(0)
-    if (block0 != null && block0.size >= 16) {
-        val uid = block0.copyOfRange(0, 4).toHex()
-        val manufacturer = block0.copyOfRange(4, 16).toHex()
-//        parsed.add(ParsedField("Block 0 UID", uid))
-//        parsed.add(ParsedField("Block 0 Manufacturer", manufacturer))
-    }
-
-    val block1 = blocks.getOrNull(1)
-    if (block1 != null && block1.size >= 16) {
-        val variantId = asciiOrHex(block1.copyOfRange(0, 8))
-        val materialIdBytes = block1.copyOfRange(8, 16)
-        materialId = asciiOnly(materialIdBytes)
-        val materialDisplay = materialId.ifBlank { materialIdBytes.toHex() }
-        if (variantId.isNotBlank()) {
-            parsed.add(ParsedField("Block 1 Material Variant ID", variantId))
-        }
-        if (materialDisplay.isNotBlank()) {
-            parsed.add(ParsedField("Block 1 Material ID", materialDisplay))
         }
     }
 
-    val block2 = blocks.getOrNull(2)
-    if (block2 != null && block2.size >= 16) {
-        filamentType = asciiOrHex(block2.copyOfRange(0, 16))
-        if (filamentType.isNotBlank()) {
-            parsed.add(ParsedField("Block 2 Filament Type", filamentType))
-        }
-    }
+    private fun parseLatestRawTagData(): NfcUiState {
+        // 解析函数只从临时变量取数据，避免与读卡层耦合。
+        val rawData = latestRawTagData ?: return NfcUiState(
+            status = uiString(R.string.status_read_failed),
+            error = uiString(R.string.error_read_exception)
+        )
 
-    val block4 = blocks.getOrNull(4)
-    if (block4 != null && block4.size >= 16) {
-        detailedFilamentType = asciiOrHex(block4.copyOfRange(0, 16))
-        if (detailedFilamentType.isNotBlank()) {
-            parsed.add(ParsedField("Block 4 Detailed Filament Type", detailedFilamentType))
-        }
-    }
+        // 执行解析 + 入库，返回结构化展示数据。
+        val processed = NfcTagProcessor.parseAndPersist(
+            rawData = rawData,
+            dbHelper = filamentDbHelper,
+            defaultRemainingPercent = DEFAULT_REMAINING_PERCENT.toFloat(),
+            logger = ::logDebug,
+            appendLog = { level, message -> LogCollector.append(applicationContext, level, message) }
+        )
 
-    val block5 = blocks.getOrNull(5)
-    if (block5 != null && block5.size >= 16) {
-        val colorRgba = "#" + block5.copyOfRange(0, 4).toHex()
-        parsed.add(ParsedField("Block 5 Color RGBA", colorRgba))
-        val normalized = normalizeColorValue(colorRgba)
-        if (normalized.isNotBlank()) {
-            colorValues.add(normalized)
+        // 依据原始读卡错误与有效块情况，统一生成最终状态文案。
+        val status = when {
+            rawData.errors.isEmpty() -> uiString(R.string.status_read_success)
+            processed.blockHexes.any { it.isNotBlank() } -> uiString(R.string.status_read_partial)
+            else -> uiString(R.string.status_read_failed)
         }
-
-        val spoolWeight = toUInt16LE(block5, 4)
-        if (spoolWeight != null) {
-            parsed.add(ParsedField("Block 5 Spool Weight", "$spoolWeight 克"))
+        if (rawData.errors.isNotEmpty()) {
+            logDebug("读取错误: ${rawData.errors.joinToString(separator = "; ")}")
         }
 
-        val diameter = parseDiameter(block5)
-        if (diameter.isNotBlank()) {
-            parsed.add(ParsedField("Block 5 Filament Diameter", diameter))
-        }
-    }
-
-    val block6 = blocks.getOrNull(6)
-    if (block6 != null && block6.size >= 16) {
-        toUInt16LE(block6, 0)?.let {
-            parsed.add(
-                ParsedField(
-                    "Block 6 Drying Temperature",
-                    "$it ℃"
-                )
-            )
-        }
-        toUInt16LE(block6, 2)?.let { parsed.add(ParsedField("Block 6 Drying Time", "$it 小时")) }
-        toUInt16LE(block6, 4)?.let {
-            parsed.add(
-                ParsedField(
-                    "Block 6 Bed Temperature Type",
-                    "$it"
-                )
-            )
-        }
-        toUInt16LE(block6, 6)?.let { parsed.add(ParsedField("Block 6 Bed Temperature", "$it ℃")) }
-        toUInt16LE(block6, 8)?.let {
-            parsed.add(
-                ParsedField(
-                    "Block 6 Max Hotend Temperature",
-                    "$it ℃"
-                )
-            )
-        }
-        toUInt16LE(block6, 10)?.let {
-            parsed.add(
-                ParsedField(
-                    "Block 6 Min Hotend Temperature",
-                    "$it ℃"
-                )
-            )
-        }
-    }
-
-    if (block12 != null && block12.size >= 16) {
-        val production = formatProductionDate(asciiOrHex(block12.copyOfRange(0, 16)))
-        if (production.isNotBlank()) {
-            parsed.add(ParsedField("Block 12 Production Date", production))
-        }
-    }
-
-    val extraColors = parseAdditionalColors(block16)
-    colorValues.addAll(extraColors)
-
-    return ParsedBlockData(
-        fields = parsed,
-        materialId = materialId,
-        filamentType = filamentType,
-        detailedFilamentType = detailedFilamentType,
-        colorValues = colorValues
-    )
-}
-
-private fun parseAdditionalColors(block16: ByteArray?): List<String> {
-    if (block16 == null || block16.size < 8) {
-        return emptyList()
-    }
-    val marker = toUInt16LE(block16, 0) ?: return emptyList()
-    if (marker != 0x0002) {
-        return emptyList()
-    }
-    val count = toUInt16LE(block16, 2) ?: return emptyList()
-    if (count <= 1) {
-        return emptyList()
-    }
-    val maxColors = minOf(count - 1, (block16.size - 4) / 4)
-    val colors = ArrayList<String>(maxColors)
-    for (i in 0 until maxColors) {
-        val start = 4 + i * 4
-        val colorBytes = block16.copyOfRange(start, start + 4)
-        if (colorBytes.all { it == 0.toByte() }) {
-            continue
-        }
-        val reversed = colorBytes.reversedArray()
-        val normalized = normalizeColorValue("#" + reversed.toHex())
-        if (normalized.isNotBlank()) {
-            colors.add(normalized)
-        }
-    }
-    if (colors.isNotEmpty()) {
-        logDebug(
-            "区块16多色数据: 标识=0x%04X 颜色数量=%d 颜色=%s".format(
-                marker,
-                count,
-                colors.joinToString(",")
-            )
+        return NfcUiState(
+            status = status,
+            uidHex = rawData.uidHex,
+            keyA0Hex = rawData.keyA0Hex,
+            keyB0Hex = rawData.keyB0Hex,
+            keyA1Hex = rawData.keyA1Hex,
+            keyB1Hex = rawData.keyB1Hex,
+            blockHexes = processed.blockHexes,
+            parsedFields = processed.parsedFields,
+            displayType = processed.displayData.type,
+            displayColorName = processed.displayData.colorName,
+            displayColorCode = processed.displayData.colorCode,
+            displayColorType = processed.displayData.colorType,
+            displayColors = processed.displayData.colorValues,
+            secondaryFields = processed.displayData.secondaryFields,
+            trayUidHex = processed.trayUidHex,
+            remainingPercent = processed.remainingPercent,
+            remainingGrams = processed.remainingGrams,
+            totalWeightGrams = processed.totalWeightGrams,
+            error = rawData.errors.joinToString(separator = "; ")
         )
     }
-    return colors
 }
 
-private fun asciiOrHex(bytes: ByteArray): String {
-    val trimmed = trimPadding(bytes)
-    if (trimmed.isEmpty()) {
-        return ""
-    }
-    val printable = trimmed.all { it in 0x20..0x7E }
-    return if (printable) {
-        String(trimmed, Charsets.US_ASCII)
-    } else {
-        trimmed.toHex()
-    }
-}
-
-private fun trimPadding(bytes: ByteArray): ByteArray {
-    var end = bytes.size
-    while (end > 0) {
-        val value = bytes[end - 1]
-        if (value != 0x00.toByte() && value != 0xFF.toByte()) {
-            break
-        }
-        end--
-    }
-    return bytes.copyOf(end)
-}
-
-private fun asciiOnly(bytes: ByteArray): String {
-    val trimmed = trimPadding(bytes)
-    if (trimmed.isEmpty()) {
-        return ""
-    }
-    val printable = trimmed.all { it in 0x20..0x7E }
-    return if (printable) {
-        String(trimmed, Charsets.US_ASCII)
-    } else {
-        ""
-    }
-}
-
-private fun parseDiameter(block5: ByteArray): String {
-    if (block5.size < 12) {
-        return ""
-    }
-    val trailingZeros = block5.copyOfRange(12, 16).all { it == 0.toByte() }
-    val diameter = if (trailingZeros) {
-        val floatValue = toFloat32LE(block5, 8) ?: return ""
-        floatValue.toDouble()
-    } else {
-        val doubleValue = toFloat64LE(block5, 8) ?: return ""
-        doubleValue
-    }
-    return String.format(Locale.US, "%.3f 毫米", diameter)
-}
-
-private fun toUInt16LE(bytes: ByteArray, offset: Int): Int? {
-    if (offset + 1 >= bytes.size) {
-        return null
-    }
-    val low = bytes[offset].toInt() and 0xFF
-    val high = bytes[offset + 1].toInt() and 0xFF
-    return low or (high shl 8)
-}
-
-private fun toFloat32LE(bytes: ByteArray, offset: Int): Float? {
-    if (offset + 3 >= bytes.size) {
-        return null
-    }
-    val buffer = ByteBuffer.wrap(bytes, offset, 4).order(ByteOrder.LITTLE_ENDIAN)
-    return buffer.float
-}
-
-private fun toFloat64LE(bytes: ByteArray, offset: Int): Double? {
-    if (offset + 7 >= bytes.size) {
-        return null
-    }
-    val buffer = ByteBuffer.wrap(bytes, offset, 8).order(ByteOrder.LITTLE_ENDIAN)
-    return buffer.double
-}
-
-private fun buildDisplayData(
-    parsedBlockData: ParsedBlockData,
-    dbHelper: FilamentDbHelper?
-): DisplayData {
-    var type = ""
-    var colorName = ""
-    var colorCode = ""
-    var colorType = ""
-    var colorValues = parsedBlockData.colorValues
-
-    if (dbHelper != null && parsedBlockData.materialId.isNotBlank()) {
-        val entries = queryFilamentEntries(
-            dbHelper,
-            parsedBlockData.materialId,
-            parsedBlockData.colorValues
-        )
-        val matched = findMatchingEntry(entries, parsedBlockData.colorValues)
-        val entry =
-            matched ?: if (parsedBlockData.colorValues.isEmpty()) entries.firstOrNull() else null
-        if (entry != null) {
-            type = entry.filaType
-            colorName = entry.colorNameZh
-            colorCode = entry.colorCode
-            colorType = entry.colorType
-            if (entry.colorValues.isNotEmpty()) {
-                colorValues = entry.colorValues
-            }
-        }
-    }
-
-    if (type.isBlank()) {
-        type = findFieldValue(
-            parsedBlockData.fields,
-            "Block 4 Detailed Filament Type",
-            "Block 2 Filament Type"
-        )
-        if (isLikelyHex(type)) {
-            type = ""
-        }
-    }
-
-    val secondaryFields = buildSecondaryFields(parsedBlockData.fields).toMutableList()
-    if (colorType.isNotBlank()) {
-        secondaryFields.add(0, ParsedField("颜色类型", colorType))
-    }
-    return DisplayData(
-        type = type,
-        colorName = colorName,
-        colorCode = colorCode,
-        colorType = colorType,
-        colorValues = colorValues,
-        secondaryFields = secondaryFields
-    )
-}
-
-private fun buildSecondaryFields(fields: List<ParsedField>): List<ParsedField> {
-    val labelMap = linkedMapOf(
-        // "Block 2 Filament Type" to "耗材类型",
-        // "Block 4 Detailed Filament Type" to "详细耗材类型",
-        "Block 5 Spool Weight" to "耗材重量",
-        "Block 5 Filament Diameter" to "耗材直径",
-        "Block 6 Drying Temperature" to "烘干温度",
-        "Block 6 Drying Time" to "烘干时间",
-        // "Block 6 Bed Temperature Type" to "热床温度类型",
-        // "Block 6 Bed Temperature" to "热床温度",
-        "Block 6 Max Hotend Temperature" to "喷嘴最高温度",
-        "Block 6 Min Hotend Temperature" to "喷嘴最低温度",
-        "Block 12 Production Date" to "生产日期"
-    )
-
-    val result = ArrayList<ParsedField>()
-    for ((label, displayLabel) in labelMap) {
-        val value = fields.firstOrNull { it.label == label }?.value.orEmpty()
-        if (value.isNotBlank() && !isLikelyHex(value)) {
-            result.add(ParsedField(displayLabel, value))
-        }
-    }
-    return result
-}
-
-private fun formatProductionDate(value: String): String {
-    val raw = value.trim()
-    val parts = raw.split('_')
-    if (parts.size < 5) {
-        return raw
-    }
-    val year = parts[0]
-    val month = parts[1]
-    val day = parts[2]
-    val hour = parts[3]
-    val minute = parts[4]
-    val numeric = listOf(year, month, day, hour, minute).all { it.all(Char::isDigit) }
-    if (!numeric) {
-        return raw
-    }
-    return "${year}年${month}月${day}日 ${hour}时${minute}分"
-}
-
-private fun findMatchingEntry(
-    entries: List<FilamentColorEntry>,
-    readColors: List<String>
-): FilamentColorEntry? {
-    val normalizedRead = readColors.map { normalizeColorValue(it) }.filter { it.isNotBlank() }
-    if (normalizedRead.isEmpty()) {
-        return null
-    }
-    return entries.firstOrNull { colorsMatch(it.colorValues, normalizedRead) }
-}
-
-private fun colorsMatch(entryColors: List<String>, readColors: List<String>): Boolean {
-    val normalizedEntry = entryColors.map { normalizeColorValue(it) }.filter { it.isNotBlank() }
-    val normalizedRead = readColors.map { normalizeColorValue(it) }.filter { it.isNotBlank() }
-    if (normalizedEntry.isEmpty() || normalizedRead.isEmpty()) {
-        return false
-    }
-    if (normalizedEntry.size != normalizedRead.size) {
-        return false
-    }
-    return normalizedEntry.sorted() == normalizedRead.sorted()
-}
-
-private fun findFieldValue(fields: List<ParsedField>, vararg labels: String): String {
-    for (label in labels) {
-        val value = fields.firstOrNull { it.label == label }?.value.orEmpty()
-        if (value.isNotBlank()) {
-            return value
-        }
-    }
-    return ""
-}
-
-private fun isLikelyHex(value: String): Boolean {
-    val normalized = value.trim().removePrefix("#")
-    if (normalized.length < 8) {
-        return false
-    }
-    return normalized.all { it in '0'..'9' || it in 'A'..'F' || it in 'a'..'f' }
-}
 
 private data class FilamentJsonSource(
     val jsonText: String,
@@ -1639,68 +985,6 @@ private fun resolveColorName(colorNames: JSONObject?, language: String): String 
     }
     return ""
 }
-
-private fun queryFilamentEntries(
-    dbHelper: FilamentDbHelper,
-    filaId: String,
-    readColors: List<String>
-): List<FilamentColorEntry> {
-    val db = dbHelper.readableDatabase
-    val entries = ArrayList<FilamentColorEntry>()
-    val normalizedColors = readColors.map { normalizeColorValue(it) }.filter { it.isNotBlank() }
-    val selection: String
-    val selectionArgs: Array<String>
-    if (normalizedColors.isNotEmpty()) {
-        selection = "fila_id = ? AND color_count = ?"
-        selectionArgs = arrayOf(filaId, normalizedColors.size.toString())
-    } else {
-        selection = "fila_id = ?"
-        selectionArgs = arrayOf(filaId)
-    }
-    val cursor = db.query(
-        FILAMENT_TABLE,
-        arrayOf(
-            "fila_color_code",
-            "fila_id",
-            "fila_color_type",
-            "fila_type",
-            "fila_detailed_type",
-            "color_name_zh",
-            "color_values",
-            "color_count"
-        ),
-        selection,
-        selectionArgs,
-        null,
-        null,
-        "fila_color_code ASC"
-    )
-    cursor.use {
-        while (it.moveToNext()) {
-            val colorValues = it.getString(6)
-                ?.split(',')
-                ?.map { value -> value.trim() }
-                ?.filter { value -> value.isNotEmpty() }
-                ?: emptyList()
-            val colorCount = it.getInt(7)
-            entries.add(
-                FilamentColorEntry(
-                    colorCode = it.getString(0).orEmpty(),
-                    filaId = it.getString(1).orEmpty(),
-                    colorType = it.getString(2).orEmpty(),
-                    filaType = it.getString(3).orEmpty(),
-                    filaDetailedType = it.getString(4).orEmpty(),
-                    colorNameZh = it.getString(5).orEmpty(),
-                    colorValues = colorValues,
-                    colorCount = colorCount
-                )
-            )
-        }
-    }
-    return entries
-}
-
-
 
 class FilamentDbHelper(context: Context) :
     SQLiteOpenHelper(context, FILAMENT_DB_NAME, null, FILAMENT_DB_VERSION) {
@@ -2176,47 +1460,6 @@ class FilamentDbHelper(context: Context) :
         )
     }
 
-}
-
-private fun extractWeightGrams(fields: List<ParsedField>): Int {
-    val field = fields.firstOrNull { it.label == "Block 5 Spool Weight" } ?: return 0
-    val digits = field.value.filter { it.isDigit() }
-    return digits.toIntOrNull() ?: 0
-}
-
-private fun deriveKeys(uid: ByteArray, info: ByteArray): List<ByteArray> {
-    val prk = hkdfExtract(HKDF_SALT, uid)
-    val okm = hkdfExpand(prk, info, KEY_LENGTH_BYTES * SECTOR_COUNT)
-    val keys = ArrayList<ByteArray>(SECTOR_COUNT)
-    for (i in 0 until SECTOR_COUNT) {
-        val start = i * KEY_LENGTH_BYTES
-        keys.add(okm.copyOfRange(start, start + KEY_LENGTH_BYTES))
-    }
-    return keys
-}
-
-private fun hkdfExtract(salt: ByteArray, ikm: ByteArray): ByteArray {
-    val mac = Mac.getInstance("HmacSHA256")
-    mac.init(SecretKeySpec(salt, "HmacSHA256"))
-    return mac.doFinal(ikm)
-}
-
-private fun hkdfExpand(prk: ByteArray, info: ByteArray, length: Int): ByteArray {
-    val mac = Mac.getInstance("HmacSHA256")
-    val hashLen = mac.macLength
-    val blocks = ceil(length.toDouble() / hashLen.toDouble()).toInt()
-    var t = ByteArray(0)
-    val output = ByteArrayOutputStream()
-    for (i in 1..blocks) {
-        mac.init(SecretKeySpec(prk, "HmacSHA256"))
-        mac.update(t)
-        mac.update(info)
-        mac.update(i.toByte())
-        t = mac.doFinal()
-        output.write(t)
-    }
-    val okm = output.toByteArray()
-    return okm.copyOf(length)
 }
 
 private fun ByteArray.toHex(): String =
