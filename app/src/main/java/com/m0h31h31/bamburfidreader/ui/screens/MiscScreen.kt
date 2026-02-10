@@ -33,6 +33,9 @@ fun MiscScreen(
     onBackupDatabase: () -> String = { "" },
     onImportDatabase: () -> String = { "" },
     onResetDatabase: () -> String = { "" },
+    miscStatusMessage: String = "",
+    onExportTagPackage: () -> String = { "" },
+    onSelectImportTagPackage: () -> String = { "" },
     appConfigMessage: String = "",
     readAllSectors: Boolean = false,
     onReadAllSectorsChange: (Boolean) -> Unit = {},
@@ -80,6 +83,13 @@ fun MiscScreen(
                     text = appConfigMessage,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.primary
+                )
+            }
+            if (miscStatusMessage.isNotBlank()) {
+                Text(
+                    text = miscStatusMessage,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             if (message.isNotBlank()) {
@@ -165,6 +175,29 @@ fun MiscScreen(
                 Text(text = "重置数据库")
             }
 
+            HorizontalDivider(
+                modifier = Modifier.fillMaxWidth(),
+                thickness = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Button(
+                    onClick = { message = onExportTagPackage() },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(text = "打包标签数据")
+                }
+                Button(
+                    onClick = { message = onSelectImportTagPackage() },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(text = "导入标签包")
+                }
+            }
 
 
             HorizontalDivider(

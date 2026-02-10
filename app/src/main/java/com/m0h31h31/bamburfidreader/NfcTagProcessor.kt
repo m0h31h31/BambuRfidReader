@@ -23,6 +23,44 @@ data class ProcessedTagData(
  */
 object NfcTagProcessor {
     /**
+     * 仅解析，不写入数据库。
+     * 用于从 share 目录文件做预览展示。
+     */
+    fun parseForPreview(
+        rawBlocks: List<ByteArray?>,
+        dbHelper: FilamentDbHelper?,
+        logger: (String) -> Unit
+    ): ProcessedTagData {
+        val blocksForParsing = listOf(
+            rawBlocks.getOrNull(0),
+            rawBlocks.getOrNull(1),
+            rawBlocks.getOrNull(2),
+            rawBlocks.getOrNull(3),
+            rawBlocks.getOrNull(4),
+            rawBlocks.getOrNull(5),
+            rawBlocks.getOrNull(6),
+            rawBlocks.getOrNull(7)
+        )
+        val block12 = rawBlocks.getOrNull(12)
+        val block16 = rawBlocks.getOrNull(16)
+
+        val parsedBlockData = parseBlocks(blocksForParsing, block12, block16, logger)
+        val displayData = buildDisplayData(parsedBlockData, dbHelper, logger)
+        val totalWeightGrams = extractWeightGrams(parsedBlockData.fields)
+        val trayUidHex = rawBlocks.getOrNull(9)?.toHex().orEmpty()
+
+        return ProcessedTagData(
+            blockHexes = blocksForParsing.map { it?.toHex().orEmpty() },
+            parsedFields = parsedBlockData.fields,
+            displayData = displayData,
+            trayUidHex = trayUidHex,
+            remainingPercent = 0f,
+            remainingGrams = 0,
+            totalWeightGrams = totalWeightGrams
+        )
+    }
+
+    /**
      * 从原始块数据中解析业务字段，并同步库存数据。
      *
      * 该函数职责：

@@ -11,6 +11,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -26,6 +27,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import com.m0h31h31.bamburfidreader.NfcUiState
 import com.m0h31h31.bamburfidreader.R
 import com.m0h31h31.bamburfidreader.FilamentDbHelper
+import com.m0h31h31.bamburfidreader.ShareTagItem
 import com.m0h31h31.bamburfidreader.ui.screens.InventoryScreen
 import com.m0h31h31.bamburfidreader.ui.screens.ReaderScreen
 import com.m0h31h31.bamburfidreader.ui.screens.TagScreen
@@ -60,7 +62,18 @@ fun AppNavigation(
     onBackupDatabase: () -> String,
     onImportDatabase: () -> String,
     onResetDatabase: () -> String,
-    navigateToReader: Boolean = false
+    miscStatusMessage: String,
+    onExportTagPackage: () -> String,
+    onSelectImportTagPackage: () -> String,
+    navigateToReader: Boolean = false,
+    shareTagItems: List<ShareTagItem>,
+    shareLoading: Boolean,
+    writeStatusMessage: String,
+    writeInProgress: Boolean,
+    onTagScreenEnter: () -> Unit,
+    onRefreshShareFiles: () -> String,
+    onStartWriteTag: (ShareTagItem) -> Unit,
+    onCancelWriteTag: () -> Unit
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -129,7 +142,20 @@ fun AppNavigation(
                 DataScreen(dbHelper = dbHelper)
             }
             composable("tag") {
-                TagScreen()
+                LaunchedEffect(shareTagItems.size) {
+                    if (shareTagItems.isEmpty()) {
+                        onTagScreenEnter()
+                    }
+                }
+                TagScreen(
+                    items = shareTagItems,
+                    loading = shareLoading,
+                    writeStatusMessage = writeStatusMessage,
+                    writeInProgress = writeInProgress,
+                    onRefresh = onRefreshShareFiles,
+                    onStartWrite = onStartWriteTag,
+                    onCancelWrite = onCancelWriteTag
+                )
             }
             composable("misc") {
                             val context = LocalContext.current
@@ -138,6 +164,9 @@ fun AppNavigation(
                                 onBackupDatabase = onBackupDatabase,
                                 onImportDatabase = onImportDatabase,
                                 onResetDatabase = onResetDatabase,
+                                miscStatusMessage = miscStatusMessage,
+                                onExportTagPackage = onExportTagPackage,
+                                onSelectImportTagPackage = onSelectImportTagPackage,
                                 appConfigMessage = appConfigMessage,
                                 readAllSectors = readAllSectors,
                                 onReadAllSectorsChange = onReadAllSectorsChange

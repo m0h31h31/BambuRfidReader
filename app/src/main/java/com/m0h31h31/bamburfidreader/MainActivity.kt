@@ -4,12 +4,19 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import android.media.AudioManager
+import android.media.ToneGenerator
+import android.net.Uri
 import android.nfc.NfcAdapter
 import android.nfc.Tag
+import android.nfc.tech.MifareClassic
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.util.Log
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -25,14 +32,21 @@ import com.m0h31h31.bamburfidreader.utils.ConfigManager
 import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
+import java.util.UUID
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import java.util.zip.ZipInputStream
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
+import kotlin.math.ceil
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -50,6 +64,19 @@ private const val TRAY_UID_TABLE = "filament_inventory"
 private const val DEFAULT_REMAINING_PERCENT = 100
 private const val LOG_DIR_NAME = "logs"
 private const val LOG_FILE_NAME = "bambu_rfid.log"
+private const val SHARE_BUNDLE_ZIP_NAME = "rfid_data.zip"
+private const val SHARE_EXTRACT_MARKER_FILE = ".bundle_extracted"
+private const val SHARE_IMPORT_ZIP_MIME = "application/zip"
+private const val WRITE_KEY_LENGTH_BYTES = 6
+private const val WRITE_SECTOR_COUNT = 16
+private val WRITE_HKDF_SALT = byteArrayOf(
+    0x9a.toByte(), 0x75.toByte(), 0x9c.toByte(), 0xf2.toByte(),
+    0xc4.toByte(), 0xf7.toByte(), 0xca.toByte(), 0xff.toByte(),
+    0x22.toByte(), 0x2c.toByte(), 0xb9.toByte(), 0x76.toByte(),
+    0x9b.toByte(), 0x41.toByte(), 0xbc.toByte(), 0x96.toByte()
+)
+private val WRITE_INFO_A = "RFID-A\u0000".toByteArray(Charsets.US_ASCII)
+private val WRITE_INFO_B = "RFID-B\u0000".toByteArray(Charsets.US_ASCII)
 
 object LogCollector {
     private val lock = Any()
@@ -177,7 +204,24 @@ data class InventoryItem(
     val remainingGrams: Int? = null
 )
 
+data class ShareTagItem(
+    val fileName: String,
+    val sourceUid: String,
+    val trayUid: String,
+    val materialType: String,
+    val colorUid: String,
+    val colorName: String,
+    val colorType: String,
+    val colorValues: List<String>,
+    val rawBlocks: List<ByteArray?>
+)
+
 class MainActivity : ComponentActivity() {
+    private enum class FeedbackTone {
+        SUCCESS,
+        FAILURE
+    }
+
     private var nfcAdapter: NfcAdapter? = null
     private var uiState by mutableStateOf(NfcUiState(status = "正在等待NFC..."))
     private var filamentDbHelper: FilamentDbHelper? = null
@@ -190,14 +234,92 @@ class MainActivity : ComponentActivity() {
     private var shouldNavigateToReader by mutableStateOf(false)
     // 原始读卡临时缓存：readTag 仅负责写入；解析函数从此读取。
     private var latestRawTagData: RawTagReadData? = null
+    private var shareTagItems by mutableStateOf<List<ShareTagItem>>(emptyList())
+    private var writeStatusMessage by mutableStateOf("")
+    private var pendingWriteItem by mutableStateOf<ShareTagItem?>(null)
+    private var pendingVerifyItem by mutableStateOf<ShareTagItem?>(null)
+    private var shareLoading by mutableStateOf(false)
+    private var miscStatusMessage by mutableStateOf("")
+    // 防止 readerCallback 并发触发导致 "Close other technology first!"。
+    private val readingInProgress = AtomicBoolean(false)
+    // 防止共享目录重复并发扫描。
+    private val shareLoadingInProgress = AtomicBoolean(false)
+    private var toneGenerator: ToneGenerator? = null
+    private val importTagPackageLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+            if (uri == null) {
+                miscStatusMessage = "已取消选择标签包"
+                return@registerForActivityResult
+            }
+            lifecycleScope.launch(Dispatchers.IO) {
+                val message = importTagPackageFromZipUri(uri)
+                withContext(Dispatchers.Main) {
+                    miscStatusMessage = message
+                    if (message.contains("成功")) {
+                        refreshShareTagItemsAsync()
+                    }
+                }
+            }
+        }
 
     private val readerCallback = NfcAdapter.ReaderCallback { tag ->
+        if (!readingInProgress.compareAndSet(false, true)) {
+            logEvent("读卡请求被忽略：上一次读卡尚未完成")
+            return@ReaderCallback
+        }
         logEvent("收到NFC标签回调")
-        val result = readTag(tag)
-        runOnUiThread {
-            uiState = result
-            shouldNavigateToReader = true
-            maybeSpeakResult(result)
+        try {
+            runOnUiThread {
+                if (pendingWriteItem != null) {
+                    writeStatusMessage = "正在写入，请保持标签稳定贴合，切勿移动..."
+                } else if (pendingVerifyItem != null) {
+                    writeStatusMessage = "正在校验，请保持标签稳定贴合，切勿移动..."
+                }
+            }
+            if (pendingWriteItem != null) {
+                val targetItem = pendingWriteItem
+                val result = if (targetItem != null) {
+                    writeTagFromDump(tag, targetItem)
+                } else {
+                    "写入任务为空"
+                }
+                runOnUiThread {
+                    writeStatusMessage = result
+                    if (result.contains("成功")) {
+                        playFeedbackTone(FeedbackTone.SUCCESS)
+                        pendingWriteItem = null
+                        pendingVerifyItem = targetItem
+                        writeStatusMessage = "写入已完成，请移开标签后再次贴卡进行校验。"
+                    } else {
+                        playFeedbackTone(FeedbackTone.FAILURE)
+                    }
+                }
+            } else if (pendingVerifyItem != null) {
+                val targetItem = pendingVerifyItem
+                val result = if (targetItem != null) {
+                    verifyTagAgainstDump(tag, targetItem)
+                } else {
+                    "校验任务为空"
+                }
+                runOnUiThread {
+                    writeStatusMessage = result
+                    if (result.contains("成功")) {
+                        playFeedbackTone(FeedbackTone.SUCCESS)
+                        pendingVerifyItem = null
+                    } else {
+                        playFeedbackTone(FeedbackTone.FAILURE)
+                    }
+                }
+            } else {
+                val result = readTag(tag)
+                runOnUiThread {
+                    uiState = result
+                    shouldNavigateToReader = true
+                    maybeSpeakResult(result)
+                }
+            }
+        } finally {
+            readingInProgress.set(false)
         }
     }
 
@@ -247,6 +369,10 @@ class MainActivity : ComponentActivity() {
         nfcAdapter = NfcAdapter.getDefaultAdapter(this)
         filamentDbHelper = FilamentDbHelper(this)
         filamentDbHelper?.let { syncFilamentDatabase(this, it) }
+        ensureShareDirectory()
+        lifecycleScope.launch(Dispatchers.IO) {
+            ensureBundledShareDataExtracted()
+        }
         if (voiceEnabled) {
             initTts()
         }
@@ -283,7 +409,64 @@ class MainActivity : ComponentActivity() {
                     onBackupDatabase = { backupDatabase() },
                     onImportDatabase = { importDatabase() },
                     onResetDatabase = { resetDatabase() },
-                    navigateToReader = shouldNavigateToReader
+                    miscStatusMessage = miscStatusMessage,
+                    onExportTagPackage = {
+                        miscStatusMessage = "正在打包标签数据，请稍候..."
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            val result = exportSelfTagPackageToDownloads()
+                            withContext(Dispatchers.Main) {
+                                miscStatusMessage = result
+                            }
+                        }
+                        "正在打包标签数据，请稍候..."
+                    },
+                    onSelectImportTagPackage = {
+                        openTagPackagePicker()
+                        val message = "请选择要导入的标签包(.zip)"
+                        miscStatusMessage = message
+                        message
+                    },
+                    navigateToReader = shouldNavigateToReader,
+                    shareTagItems = shareTagItems,
+                    shareLoading = shareLoading,
+                    writeStatusMessage = writeStatusMessage,
+                    writeInProgress = pendingWriteItem != null || pendingVerifyItem != null,
+                    onTagScreenEnter = {
+                        refreshShareTagItemsAsync()
+                    },
+                    onRefreshShareFiles = {
+                        if (refreshShareTagItemsAsync()) {
+                            "正在后台刷新共享数据..."
+                        } else {
+                            "共享数据正在刷新中，请稍候"
+                        }
+                    },
+                    onStartWriteTag = { item ->
+                        val trayUid = item.trayUid.trim()
+                        if (trayUid.isNotBlank() && isTrayUidExists(trayUid)) {
+                            android.app.AlertDialog.Builder(this@MainActivity)
+                                .setTitle("料盘ID重复")
+                                .setMessage("库存中已存在料盘ID：$trayUid，是否仍然继续复制写入？")
+                                .setPositiveButton("继续复制") { _, _ ->
+                                    pendingWriteItem = item
+                                    pendingVerifyItem = null
+                                    writeStatusMessage = "写入准备就绪：请将目标空白标签紧贴 NFC 区域，保持静止直到完成。"
+                                }
+                                .setNegativeButton("取消") { _, _ ->
+                                    writeStatusMessage = "已取消：检测到重复料盘ID，未开始写入"
+                                }
+                                .show()
+                        } else {
+                            pendingWriteItem = item
+                            pendingVerifyItem = null
+                            writeStatusMessage = "写入准备就绪：请将目标空白标签紧贴 NFC 区域，保持静止直到完成。"
+                        }
+                    },
+                    onCancelWriteTag = {
+                        pendingWriteItem = null
+                        pendingVerifyItem = null
+                        writeStatusMessage = "已取消写入任务"
+                    }
                 )
                 // 重置导航标志
                 if (shouldNavigateToReader) {
@@ -348,6 +531,8 @@ class MainActivity : ComponentActivity() {
         tts = null
         ttsReady = false
         ttsLanguageReady = false
+        toneGenerator?.release()
+        toneGenerator = null
         val result = LogCollector.packageLogs(this)
         logDebug(result)
         LogCollector.append(this, "I", result)
@@ -388,6 +573,17 @@ class MainActivity : ComponentActivity() {
 
     private fun uiString(@StringRes id: Int, vararg args: Any): String {
         return if (args.isEmpty()) getString(id) else getString(id, *args)
+    }
+
+    private fun playFeedbackTone(type: FeedbackTone) {
+        val generator = toneGenerator ?: runCatching {
+            ToneGenerator(AudioManager.STREAM_NOTIFICATION, 90)
+        }.getOrNull()?.also { toneGenerator = it } ?: return
+
+        when (type) {
+            FeedbackTone.SUCCESS -> generator.startTone(ToneGenerator.TONE_PROP_BEEP2, 120)
+            FeedbackTone.FAILURE -> generator.startTone(ToneGenerator.TONE_PROP_NACK, 220)
+        }
     }
 
     private fun logDeviceInfo() {
@@ -473,62 +669,520 @@ class MainActivity : ComponentActivity() {
             "数据库重置失败"
         }
     }
+
+    private fun openTagPackagePicker() {
+        importTagPackageLauncher.launch(
+            arrayOf(
+                SHARE_IMPORT_ZIP_MIME,
+                "application/x-zip-compressed",
+                "application/octet-stream",
+                "*/*"
+            )
+        )
+    }
+
+    private fun exportSelfTagPackageToDownloads(): String {
+        val externalDir = getExternalFilesDir(null) ?: return "无法访问应用存储目录"
+        val sourceDir = File(externalDir, "rfid_files/self_${getDeviceIdSuffix()}")
+        if (!sourceDir.exists() || !sourceDir.isDirectory) {
+            return "未找到标签数据目录: ${sourceDir.name}"
+        }
+        val files = sourceDir.walkTopDown().filter { it.isFile }.toList()
+        if (files.isEmpty()) {
+            return "标签数据目录为空，无法打包"
+        }
+
+        val zipName = "tag_package_${sourceDir.name}_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.zip"
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(android.provider.MediaStore.Downloads.DISPLAY_NAME, zipName)
+                    put(android.provider.MediaStore.Downloads.MIME_TYPE, SHARE_IMPORT_ZIP_MIME)
+                    put(android.provider.MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                }
+                val resolver = contentResolver
+                val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                    ?: return "创建下载文件失败"
+                resolver.openOutputStream(uri)?.use { output ->
+                    ZipOutputStream(output.buffered()).use { zip ->
+                        files.forEach { file ->
+                            val relative = file.relativeTo(sourceDir).invariantSeparatorsPath
+                            val entry = ZipEntry("${sourceDir.name}/$relative")
+                            zip.putNextEntry(entry)
+                            file.inputStream().use { input -> input.copyTo(zip) }
+                            zip.closeEntry()
+                        }
+                    }
+                } ?: return "打开下载文件失败"
+            } else {
+                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                if (!downloadsDir.exists()) downloadsDir.mkdirs()
+                val outFile = File(downloadsDir, zipName)
+                outFile.outputStream().use { output ->
+                    ZipOutputStream(output.buffered()).use { zip ->
+                        files.forEach { file ->
+                            val relative = file.relativeTo(sourceDir).invariantSeparatorsPath
+                            val entry = ZipEntry("${sourceDir.name}/$relative")
+                            zip.putNextEntry(entry)
+                            file.inputStream().use { input -> input.copyTo(zip) }
+                            zip.closeEntry()
+                        }
+                    }
+                }
+            }
+            "标签数据打包成功: Download/$zipName"
+        } catch (e: Exception) {
+            logDebug("标签数据打包失败: ${e.message}")
+            "标签数据打包失败: ${e.message.orEmpty()}"
+        }
+    }
+
+    private fun importTagPackageFromZipUri(uri: Uri): String {
+        val externalDir = getExternalFilesDir(null) ?: return "无法访问应用存储目录"
+        val shareDir = File(externalDir, "rfid_files/share")
+        if (!shareDir.exists()) {
+            shareDir.mkdirs()
+        }
+
+        return try {
+            var extractedCount = 0
+            contentResolver.openInputStream(uri)?.use { input ->
+                ZipInputStream(input).use { zip ->
+                    var entry = zip.nextEntry
+                    while (entry != null) {
+                        unzipEntryToDir(zip, entry, shareDir)
+                        if (!entry.isDirectory && entry.name.lowercase(Locale.US).endsWith(".txt")) {
+                            extractedCount++
+                        }
+                        zip.closeEntry()
+                        entry = zip.nextEntry
+                    }
+                }
+            } ?: return "读取标签包失败"
+
+            if (extractedCount == 0) {
+                "导入完成，但压缩包内未发现 txt 标签数据"
+            } else {
+                "标签包导入成功: 共导入 $extractedCount 个标签文件"
+            }
+        } catch (e: Exception) {
+            logDebug("导入标签包失败: ${e.message}")
+            "导入标签包失败: ${e.message.orEmpty()}"
+        }
+    }
     
     /**
      * 保存全部扇区数据到文件
      */
     private fun saveAllSectorsData(uidHex: String, rawBlocks: List<ByteArray?>, sectorKeys: List<Pair<ByteArray?, ByteArray?>>) {
         try {
-            // 创建rfid_files目录
             val externalDir = getExternalFilesDir(null)
             if (externalDir == null) {
                 logDebug("无法访问存储目录")
                 return
             }
-            val rfidFilesDir = File(externalDir, "rfid_files")
+            val deviceIdSuffix = getDeviceIdSuffix()
+            val rfidFilesDir = File(externalDir, "rfid_files/self_$deviceIdSuffix")
             if (!rfidFilesDir.exists()) {
                 rfidFilesDir.mkdirs()
             }
-            
-            // 创建以UID命名的文件
-            val fileName = "${uidHex}.txt"
-            val outputFile = File(rfidFilesDir, fileName)
-            
-            // 写入数据
+
+            val outputFile = File(rfidFilesDir, "${uidHex}.txt")
+            val accessBitsHex = "87878769"
+
+            // 仅输出原始16进制文本：
+            // 1. 每行一个区块（共64行）
+            // 2. 无任何结构化说明文字
+            // 3. 每个扇区尾块（sector*4+3）写入 KeyA + 87878769 + KeyB
             outputFile.bufferedWriter().use { writer ->
-                writer.write("RFID Tag UID: $uidHex\n")
-                writer.write("==============================\n")
-                
-                // 写入密钥信息
-                writer.write("密钥信息:\n")
                 for (sector in 0 until 16) {
-                    val keyA = sectorKeys[sector].first
-                    val keyB = sectorKeys[sector].second
-                    writer.write("  扇区 $sector - 密钥A: ${keyA?.toHex().orEmpty()}, 密钥B: ${keyB?.toHex().orEmpty()}\n")
-                }
-                writer.write("==============================\n\n")
-                
-                // 按扇区组织数据
-                for (sector in 0 until 16) {
-                    writer.write("扇区 $sector:\n")
                     for (block in 0 until 4) {
                         val blockIndex = sector * 4 + block
-                        if (blockIndex < rawBlocks.size) {
-                            val data = rawBlocks[blockIndex]
-                            val hex = data?.toHex().orEmpty()
-                            writer.write("  区块 $blockIndex: $hex\n")
+                        val lineHex = if (block == 3 && sector < sectorKeys.size) {
+                            val keyAHex = sectorKeys[sector].first?.toHex()
+                            val keyBHex = sectorKeys[sector].second?.toHex()
+                            if (!keyAHex.isNullOrBlank() && !keyBHex.isNullOrBlank()) {
+                                keyAHex + accessBitsHex + keyBHex
+                            } else {
+                                rawBlocks.getOrNull(blockIndex)?.toHex().orEmpty()
+                            }
+                        } else {
+                            rawBlocks.getOrNull(blockIndex)?.toHex().orEmpty()
                         }
+                        writer.write(lineHex)
+                        writer.newLine()
                     }
-                    writer.write("\n")
                 }
             }
-            
+
             logDebug("全部扇区数据已保存到: ${outputFile.absolutePath}")
             LogCollector.append(this, "I", "全部扇区数据已保存到: ${outputFile.absolutePath}")
         } catch (e: Exception) {
             logDebug("保存扇区数据失败: ${e.message}")
             LogCollector.append(this, "E", "保存扇区数据失败: ${e.message}")
         }
+    }
+
+    /**
+     * 获取用于文件夹后缀的设备唯一ID（优先 ANDROID_ID）。
+     * 仅用于本地目录命名，做最小化清洗避免路径非法字符。
+     */
+    private fun getDeviceIdSuffix(): String {
+        val androidId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+        val rawId = when {
+            !androidId.isNullOrBlank() -> androidId
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.O -> Build.SERIAL.orEmpty()
+            else -> ""
+        }.ifBlank { "unknown" }
+
+        return rawId
+            .lowercase(Locale.US)
+            .replace(Regex("[^a-z0-9_-]"), "_")
+            .take(32)
+            .ifBlank { "unknown" }
+    }
+
+    private fun ensureShareDirectory() {
+        val externalDir = getExternalFilesDir(null) ?: return
+        val shareDir = File(externalDir, "rfid_files/share")
+        if (!shareDir.exists()) {
+            shareDir.mkdirs()
+        }
+    }
+
+    /**
+     * 首次安装后自动把 assets/rfid_data.zip 解压到 rfid_files/share。
+     * 已有 txt 数据或已写入标记时不会重复解压，避免覆盖用户内容。
+     */
+    private fun ensureBundledShareDataExtracted() {
+        val externalDir = getExternalFilesDir(null) ?: return
+        val shareDir = File(externalDir, "rfid_files/share")
+        if (!shareDir.exists()) {
+            shareDir.mkdirs()
+        }
+
+        val markerFile = File(shareDir, SHARE_EXTRACT_MARKER_FILE)
+        val hasTxtFiles = shareDir.walkTopDown().any { file ->
+            file.isFile && file.extension.equals("txt", ignoreCase = true)
+        }
+        if (markerFile.exists() || hasTxtFiles) {
+            return
+        }
+
+        try {
+            assets.open(SHARE_BUNDLE_ZIP_NAME).use { input ->
+                ZipInputStream(input).use { zip ->
+                    var entry = zip.nextEntry
+                    while (entry != null) {
+                        unzipEntryToDir(zip, entry, shareDir)
+                        zip.closeEntry()
+                        entry = zip.nextEntry
+                    }
+                }
+            }
+            markerFile.writeText(
+                "extracted_at=${System.currentTimeMillis()}",
+                Charsets.UTF_8
+            )
+            logDebug("基础共享数据已解压到: ${shareDir.absolutePath}")
+        } catch (e: Exception) {
+            // 允许 assets 中不存在该 zip，不阻塞应用启动。
+            logDebug("基础共享数据解压跳过/失败: ${e.message}")
+        }
+    }
+
+    private fun unzipEntryToDir(zip: ZipInputStream, entry: ZipEntry, targetDir: File) {
+        val outFile = File(targetDir, entry.name)
+        val targetPath = targetDir.canonicalPath
+        val outPath = outFile.canonicalPath
+        if (!outPath.startsWith("$targetPath${File.separator}") && outPath != targetPath) {
+            throw IOException("非法压缩路径: ${entry.name}")
+        }
+        if (entry.isDirectory) {
+            outFile.mkdirs()
+            return
+        }
+        outFile.parentFile?.mkdirs()
+        outFile.outputStream().use { output ->
+            zip.copyTo(output)
+        }
+    }
+
+    private fun loadShareTagItems(): List<ShareTagItem> {
+        val externalDir = getExternalFilesDir(null) ?: return emptyList()
+        val shareDir = File(externalDir, "rfid_files/share")
+        if (!shareDir.exists()) {
+            shareDir.mkdirs()
+            return emptyList()
+        }
+
+        val files = shareDir
+            .walkTopDown()
+            .filter { file ->
+                file.isFile && file.extension.equals("txt", ignoreCase = true)
+            }
+            .sortedBy { file ->
+                file.relativeTo(shareDir).path.lowercase(Locale.US)
+            }
+            .toList()
+
+        val result = ArrayList<ShareTagItem>()
+        files.forEach { file ->
+            try {
+                val rawBlocks = parseHexDumpFile(file) ?: return@forEach
+                // 共享文件批量扫描时关闭详细日志，避免大文件量下频繁日志影响性能。
+                val preview = NfcTagProcessor.parseForPreview(rawBlocks, filamentDbHelper) { }
+                result.add(
+                    ShareTagItem(
+                        fileName = file.name,
+                        sourceUid = file.nameWithoutExtension,
+                        trayUid = preview.trayUidHex,
+                        materialType = preview.displayData.type,
+                        colorUid = preview.displayData.colorCode,
+                        colorName = preview.displayData.colorName,
+                        colorType = preview.displayData.colorType,
+                        colorValues = preview.displayData.colorValues,
+                        rawBlocks = rawBlocks
+                    )
+                )
+            } catch (e: Exception) {
+                logDebug("解析共享文件失败 ${file.name}: ${e.message}")
+            }
+        }
+        return result
+    }
+
+    private fun refreshShareTagItemsAsync(): Boolean {
+        if (!shareLoadingInProgress.compareAndSet(false, true)) {
+            return false
+        }
+        shareLoading = true
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                ensureBundledShareDataExtracted()
+                val loadedItems = loadShareTagItems()
+                withContext(Dispatchers.Main) {
+                    shareTagItems = loadedItems
+                    shareLoading = false
+                }
+            } finally {
+                shareLoadingInProgress.set(false)
+                runOnUiThread {
+                    shareLoading = false
+                }
+            }
+        }
+        return true
+    }
+
+    private fun isTrayUidExists(trayUid: String): Boolean {
+        val db = filamentDbHelper?.readableDatabase ?: return false
+        val cursor = db.query(
+            TRAY_UID_TABLE,
+            arrayOf("tray_uid"),
+            "tray_uid = ?",
+            arrayOf(trayUid),
+            null,
+            null,
+            null,
+            "1"
+        )
+        cursor.use {
+            return it.moveToFirst()
+        }
+    }
+
+    private fun parseHexDumpFile(file: File): List<ByteArray?>? {
+        val lines = file.readLines(Charsets.UTF_8)
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+        if (lines.isEmpty()) {
+            return null
+        }
+        val blocks = MutableList<ByteArray?>(64) { null }
+        lines.take(64).forEachIndexed { index, line ->
+            val hex = line.replace(" ", "").uppercase(Locale.US)
+            if (hex.length == 32 && hex.all { it in '0'..'9' || it in 'A'..'F' }) {
+                blocks[index] = hexToBytes(hex)
+            }
+        }
+        return blocks
+    }
+
+    private fun writeTagFromDump(tag: Tag, item: ShareTagItem): String {
+        val mifare = MifareClassic.get(tag) ?: return "写入失败：标签不支持 MIFARE Classic"
+        val sourceBlocks = item.rawBlocks
+        if (sourceBlocks.isEmpty()) {
+            return "写入失败：源文件数据为空"
+        }
+
+        val ffKey = ByteArray(6) { 0xFF.toByte() }
+
+        return try {
+            mifare.connect()
+            // 给用户一点放稳标签的时间，降低写入开始时抖动风险。
+            Thread.sleep(700)
+
+            for (sector in 0 until 16) {
+                val trailerIndex = sector * 4 + 3
+                val trailerData = sourceBlocks.getOrNull(trailerIndex)
+                val sourceKeyA = if (trailerData != null && trailerData.size == 16) {
+                    trailerData.copyOfRange(0, 6)
+                } else null
+                val sourceKeyB = if (trailerData != null && trailerData.size == 16) {
+                    trailerData.copyOfRange(10, 16)
+                } else null
+
+                val authenticated =
+                    // 空卡默认全 FF 密钥，优先尝试 FF；再回退派生密钥，兼容非空卡。
+                    mifare.authenticateSectorWithKeyA(sector, ffKey) ||
+                        mifare.authenticateSectorWithKeyB(sector, ffKey) ||
+                        (sourceKeyA != null && mifare.authenticateSectorWithKeyA(sector, sourceKeyA)) ||
+                        (sourceKeyB != null && mifare.authenticateSectorWithKeyB(sector, sourceKeyB))
+                if (!authenticated) {
+                    return "写入失败：扇区 $sector 认证失败"
+                }
+
+                val startBlock = mifare.sectorToBlock(sector)
+                for (offset in 0 until 4) {
+                    val blockIndex = startBlock + offset
+
+                    // 严格 1:1 按文件写入（包括 trailer 密钥与权限位）。
+                    val targetData = sourceBlocks.getOrNull(blockIndex)
+                        ?: return "写入失败：区块 $blockIndex 源数据缺失"
+                    if (targetData.size != 16) {
+                        return "写入失败：区块 $blockIndex 数据长度异常"
+                    }
+
+                    mifare.writeBlock(blockIndex, targetData)
+                    // 每块间隔一点点，降低连续写导致的链路抖动。
+                    Thread.sleep(20)
+                }
+            }
+            "写入成功：已完成全部区块写入"
+        } catch (e: Exception) {
+            "写入失败：${e.message.orEmpty()}"
+        } finally {
+            try {
+                mifare.close()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun verifyTagAgainstDump(tag: Tag, item: ShareTagItem): String {
+        val mifare = MifareClassic.get(tag) ?: return "校验失败：标签不支持 MIFARE Classic"
+        val sourceBlocks = item.rawBlocks
+        if (sourceBlocks.size < 64) {
+            return "校验失败：源数据不足 64 区块"
+        }
+
+        return try {
+            mifare.connect()
+            val readBackBlocks = MutableList<ByteArray?>(64) { null }
+            for (sector in 0 until 16) {
+                val trailerIndex = sector * 4 + 3
+                val trailerData = sourceBlocks.getOrNull(trailerIndex)
+                    ?: return "校验失败：扇区 $sector trailer 缺失"
+                if (trailerData.size != 16) {
+                    return "校验失败：扇区 $sector trailer 长度异常"
+                }
+                val sourceKeyA = trailerData.copyOfRange(0, 6)
+                val sourceKeyB = trailerData.copyOfRange(10, 16)
+                val authenticated =
+                    mifare.authenticateSectorWithKeyA(sector, sourceKeyA) ||
+                        mifare.authenticateSectorWithKeyB(sector, sourceKeyB)
+                if (!authenticated) {
+                    return "校验失败：扇区 $sector 使用文件秘钥认证失败"
+                }
+
+                val startBlock = mifare.sectorToBlock(sector)
+                for (offset in 0 until 4) {
+                    val blockIndex = startBlock + offset
+                    val actual = mifare.readBlock(blockIndex)
+                    readBackBlocks[blockIndex] = actual
+                }
+            }
+
+            // 按“每行16进制文本”逐行比对，和源文件格式一致。
+            // trailer 块不校检秘钥位（0..5 和 10..15），仅校检访问位 6..9。
+            fun maskForCompare(blockIndex: Int, block: ByteArray?): ByteArray {
+                val data = (block ?: ByteArray(16)).copyOf()
+                if (blockIndex % 4 == 3 && data.size == 16) {
+                    for (i in 0..5) data[i] = 0x00
+                    for (i in 10..15) data[i] = 0x00
+                }
+                return data
+            }
+
+            val expectedLines = sourceBlocks.mapIndexed { index, block ->
+                maskForCompare(index, block).toHex().uppercase(Locale.US)
+            }
+            val actualLines = readBackBlocks.mapIndexed { index, block ->
+                maskForCompare(index, block).toHex().uppercase(Locale.US)
+            }
+            for (index in 0 until 64) {
+                val expected = expectedLines.getOrNull(index).orEmpty()
+                val actual = actualLines.getOrNull(index).orEmpty()
+                if (expected != actual) {
+                    return "校验失败：第 ${index + 1} 行不一致，期望=$expected，实际=$actual"
+                }
+            }
+
+            "校验成功"
+        } catch (e: Exception) {
+            "校验失败：${e.message.orEmpty()}"
+        } finally {
+            try {
+                mifare.close()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun deriveWriteKeys(uid: ByteArray, info: ByteArray): List<ByteArray> {
+        val prk = hkdfExtractForWrite(WRITE_HKDF_SALT, uid)
+        val okm = hkdfExpandForWrite(prk, info, WRITE_KEY_LENGTH_BYTES * WRITE_SECTOR_COUNT)
+        val keys = ArrayList<ByteArray>(WRITE_SECTOR_COUNT)
+        for (i in 0 until WRITE_SECTOR_COUNT) {
+            val start = i * WRITE_KEY_LENGTH_BYTES
+            keys.add(okm.copyOfRange(start, start + WRITE_KEY_LENGTH_BYTES))
+        }
+        return keys
+    }
+
+    private fun hkdfExtractForWrite(salt: ByteArray, ikm: ByteArray): ByteArray {
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(salt, "HmacSHA256"))
+        return mac.doFinal(ikm)
+    }
+
+    private fun hkdfExpandForWrite(prk: ByteArray, info: ByteArray, length: Int): ByteArray {
+        val mac = Mac.getInstance("HmacSHA256")
+        val hashLen = mac.macLength
+        val blocks = ceil(length.toDouble() / hashLen.toDouble()).toInt()
+        var t = ByteArray(0)
+        val output = java.io.ByteArrayOutputStream()
+        for (i in 1..blocks) {
+            mac.init(SecretKeySpec(prk, "HmacSHA256"))
+            mac.update(t)
+            mac.update(info)
+            mac.update(i.toByte())
+            t = mac.doFinal()
+            output.write(t)
+        }
+        return output.toByteArray().copyOf(length)
+    }
+
+    private fun hexToBytes(hex: String): ByteArray {
+        val clean = hex.trim()
+        val result = ByteArray(clean.length / 2)
+        var i = 0
+        while (i < clean.length) {
+            result[i / 2] = clean.substring(i, i + 2).toInt(16).toByte()
+            i += 2
+        }
+        return result
     }
 
     private fun initTts() {
