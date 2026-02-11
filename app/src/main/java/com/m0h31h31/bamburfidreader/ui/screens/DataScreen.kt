@@ -18,6 +18,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -29,6 +31,7 @@ import androidx.compose.foundation.layout.FlowRow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 
 private data class StackedColorGroup(
     val stackKey: String,
@@ -49,6 +52,14 @@ private fun buildColorStackKey(item: InventoryItem): String {
         item.colorName.trim().lowercase(),
         if (normalizedValues.isNotBlank()) normalizedValues else item.colorCode.trim().lowercase()
     ).joinToString("|")
+}
+
+private fun colorSortValue(item: InventoryItem): Long {
+    val raw = (item.colorValues.firstOrNull() ?: item.colorCode)
+        .trim()
+        .removePrefix("#")
+        .uppercase()
+    return raw.toLongOrNull(16) ?: Long.MAX_VALUE
 }
 
 // 计算颜色亮度，返回值范围0-1，值越大越亮
@@ -155,27 +166,33 @@ fun DataScreen(dbHelper: FilamentDbHelper?, modifier: Modifier = Modifier) {
         
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(text = "分类方案：")
-            Switch(
-                checked = useDetailedClassification.value,
-                onCheckedChange = { useDetailedClassification.value = it }
-            )
-            Text(text = if (useDetailedClassification.value) "详细" else "简洁")
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(text = "同类耗材合并：")
-            Switch(
-                checked = mergeSameColorItems.value,
-                onCheckedChange = { mergeSameColorItems.value = it }
-            )
-            Text(text = if (mergeSameColorItems.value) "开启" else "关闭")
+            Row(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(text = "分类")
+                Switch(
+                    checked = useDetailedClassification.value,
+                    onCheckedChange = { useDetailedClassification.value = it }
+                )
+                Text(text = if (useDetailedClassification.value) "详细" else "简洁")
+            }
+            Row(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(text = "合并")
+                Switch(
+                    checked = mergeSameColorItems.value,
+                    onCheckedChange = { mergeSameColorItems.value = it }
+                )
+                Text(text = if (mergeSameColorItems.value) "开" else "关")
+            }
         }
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -202,8 +219,9 @@ fun DataScreen(dbHelper: FilamentDbHelper?, modifier: Modifier = Modifier) {
             ) {
                 groupedItems.value.forEach { (materialType, items) ->
                     item {
+                        val sortedItems = items.sortedByDescending { colorSortValue(it) }
                         val stackedGroups = if (mergeSameColorItems.value) {
-                            items.groupBy { buildColorStackKey(it) }
+                            sortedItems.groupBy { buildColorStackKey(it) }
                                 .map { (stackKey, grouped) ->
                                     StackedColorGroup(
                                         stackKey = stackKey,
@@ -211,10 +229,7 @@ fun DataScreen(dbHelper: FilamentDbHelper?, modifier: Modifier = Modifier) {
                                         items = grouped
                                     )
                                 }
-                                .sortedWith(
-                                    compareByDescending<StackedColorGroup> { it.count }
-                                        .thenBy { it.displayItem.colorName }
-                                )
+                                .sortedByDescending { colorSortValue(it.displayItem) }
                         } else {
                             emptyList()
                         }
@@ -234,7 +249,7 @@ fun DataScreen(dbHelper: FilamentDbHelper?, modifier: Modifier = Modifier) {
                                     horizontalArrangement = Arrangement.spacedBy(2.dp),
                                     verticalArrangement = Arrangement.spacedBy(2.dp)
                                 ) {
-                                    items.forEach { item ->
+                                    sortedItems.forEach { item ->
                                         val blockSize = 60.dp
                                         Column(
                                             modifier = Modifier.width(blockSize),
@@ -339,19 +354,28 @@ fun DataScreen(dbHelper: FilamentDbHelper?, modifier: Modifier = Modifier) {
                                                     }
                                                 }
                                                 if (stack.count > 1) {
-                                                    Card(
+                                                    Box(
                                                         modifier = Modifier
                                                             .align(Alignment.TopEnd)
-                                                            .padding(2.dp),
-                                                        colors = CardDefaults.cardColors(
-                                                            containerColor = Color(0xAA000000)
-                                                        )
+                                                            .padding(2.dp)
+                                                            .size(18.dp)
+                                                            .background(
+                                                                Color(0xCC000000),
+                                                                shape = androidx.compose.foundation.shape.CircleShape
+                                                            ),
+                                                        contentAlignment = Alignment.Center
                                                     ) {
                                                         Text(
                                                             text = "${stack.count}",
-                                                            fontSize = 9.sp,
-                                                            color = Color.White,
-                                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                            style = TextStyle(
+                                                                fontSize = 9.sp,
+                                                                color = Color.White,
+                                                                textAlign = TextAlign.Center,
+                                                                platformStyle = PlatformTextStyle(
+                                                                    includeFontPadding = false
+                                                                )
+                                                            ),
+                                                            modifier = Modifier.fillMaxSize()
                                                         )
                                                     }
                                                 }
