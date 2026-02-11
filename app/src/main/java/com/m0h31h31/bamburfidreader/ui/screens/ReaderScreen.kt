@@ -457,6 +457,11 @@ fun ReaderScreen(
                                     text = stringResource(R.string.label_other_info),
                                     style = MaterialTheme.typography.titleSmall
                                 )
+                                InfoLine(
+                                    label = "卡UID",
+                                    value = state.uidHex.ifBlank { "-" },
+                                    style = MaterialTheme.typography.bodySmall
+                                )
                                 state.secondaryFields.forEach { field ->
                                     InfoLine(
                                         label = field.label,
