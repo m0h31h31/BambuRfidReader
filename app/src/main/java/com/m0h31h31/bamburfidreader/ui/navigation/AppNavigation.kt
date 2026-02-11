@@ -53,10 +53,12 @@ fun AppNavigation(
     state: NfcUiState,
     voiceEnabled: Boolean,
     readAllSectors: Boolean,
+    saveKeysToFile: Boolean,
     ttsReady: Boolean,
     ttsLanguageReady: Boolean,
     onVoiceEnabledChange: (Boolean) -> Unit,
     onReadAllSectorsChange: (Boolean) -> Unit,
+    onSaveKeysToFileChange: (Boolean) -> Unit,
     onTrayOutbound: (String) -> Unit,
     onRemainingChange: (String, Float, Int?) -> Unit,
     dbHelper: FilamentDbHelper?,
@@ -188,7 +190,9 @@ fun AppNavigation(
                                 onSelectImportTagPackage = onSelectImportTagPackage,
                                 appConfigMessage = appConfigMessage,
                                 readAllSectors = readAllSectors,
-                                onReadAllSectorsChange = onReadAllSectorsChange
+                                onReadAllSectorsChange = onReadAllSectorsChange,
+                                saveKeysToFile = saveKeysToFile,
+                                onSaveKeysToFileChange = onSaveKeysToFileChange
                             )
                         }
         }

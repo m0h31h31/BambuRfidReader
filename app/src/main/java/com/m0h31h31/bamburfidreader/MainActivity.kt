@@ -251,6 +251,7 @@ class MainActivity : ComponentActivity() {
     private var filamentDbHelper: FilamentDbHelper? = null
     private var voiceEnabled by mutableStateOf(false)
     private var readAllSectors by mutableStateOf(false) // 控制是否读取全部扇区，默认关闭
+    private var saveKeysToFile by mutableStateOf(false) // 控制是否额外导出秘钥文件
     private var tts: TextToSpeech? = null
     private var ttsReady by mutableStateOf(false)
     private var ttsLanguageReady by mutableStateOf(false)
@@ -417,6 +418,7 @@ class MainActivity : ComponentActivity() {
                     state = uiState,
                     voiceEnabled = voiceEnabled,
                     readAllSectors = readAllSectors,
+                    saveKeysToFile = saveKeysToFile,
                     ttsReady = ttsReady,
                     ttsLanguageReady = ttsLanguageReady,
                     onVoiceEnabledChange = {
@@ -429,6 +431,9 @@ class MainActivity : ComponentActivity() {
                     },
                     onReadAllSectorsChange = {
                         readAllSectors = it
+                    },
+                    onSaveKeysToFileChange = {
+                        saveKeysToFile = it
                     },
                     onTrayOutbound = { trayUid ->
                         removeTrayFromInventory(trayUid)
@@ -918,6 +923,45 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             logDebug("保存扇区数据失败: ${e.message}")
             LogCollector.append(this, "E", "保存扇区数据失败: ${e.message}")
+        }
+    }
+
+    /**
+     * 保存秘钥到文件：
+     * - 路径：rfid_files/keys
+     * - 命名：UID.txt
+     * - 格式：每行一个秘钥（按扇区顺序：KeyA、KeyB）
+     */
+    private fun saveSectorKeysToFile(
+        uidHex: String,
+        sectorKeys: List<Pair<ByteArray?, ByteArray?>>
+    ) {
+        try {
+            val externalDir = getExternalFilesDir(null)
+            if (externalDir == null) {
+                logDebug("无法访问存储目录，秘钥文件未保存")
+                return
+            }
+            val keysDir = File(externalDir, "rfid_files/keys")
+            if (!keysDir.exists()) {
+                keysDir.mkdirs()
+            }
+            val outputFile = File(keysDir, "${uidHex}.txt")
+            outputFile.bufferedWriter().use { writer ->
+                for (sector in 0 until WRITE_SECTOR_COUNT) {
+                    val keyAHex = sectorKeys.getOrNull(sector)?.first?.toHex().orEmpty()
+                    val keyBHex = sectorKeys.getOrNull(sector)?.second?.toHex().orEmpty()
+                    writer.write(keyAHex)
+                    writer.newLine()
+                    writer.write(keyBHex)
+                    writer.newLine()
+                }
+            }
+            logDebug("秘钥已保存到: ${outputFile.absolutePath}")
+            LogCollector.append(this, "I", "秘钥已保存到: ${outputFile.absolutePath}")
+        } catch (e: Exception) {
+            logDebug("保存秘钥失败: ${e.message}")
+            LogCollector.append(this, "E", "保存秘钥失败: ${e.message}")
         }
     }
 
@@ -1459,6 +1503,13 @@ class MainActivity : ComponentActivity() {
                     // 第一个空白断点之后不再强制要求连续匹配，续写将覆盖后续。
                     break
                 }
+                if (authByFF) {
+                    // 该扇区仍可用默认 FF 密钥认证，按可覆盖区处理，不再阻止写入。
+                    if (resumePoint == null) {
+                        resumePoint = WriteResumePoint(sector, offset)
+                    }
+                    break
+                }
                 return WritePrecheckResult(
                     action = WritePrecheckAction.BLOCKED_CONFLICT,
                     message = "区块 $blockIndex 存在非目标数据，已阻止写入"
@@ -1745,6 +1796,12 @@ class MainActivity : ComponentActivity() {
                     saveAllSectorsData(
                         uidHex = rawResult.data.uidHex,
                         rawBlocks = rawResult.data.rawBlocks,
+                        sectorKeys = rawResult.data.sectorKeys
+                    )
+                }
+                if (saveKeysToFile) {
+                    saveSectorKeysToFile(
+                        uidHex = rawResult.data.uidHex,
                         sectorKeys = rawResult.data.sectorKeys
                     )
                 }

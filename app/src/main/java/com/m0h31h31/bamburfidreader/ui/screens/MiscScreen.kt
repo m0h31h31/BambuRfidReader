@@ -39,6 +39,8 @@ fun MiscScreen(
     appConfigMessage: String = "",
     readAllSectors: Boolean = false,
     onReadAllSectorsChange: (Boolean) -> Unit = {},
+    saveKeysToFile: Boolean = false,
+    onSaveKeysToFileChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uriHandler = LocalUriHandler.current
@@ -115,6 +117,18 @@ fun MiscScreen(
                 Switch(
                     checked = readAllSectors,
                     onCheckedChange = ::handleReadAllSectorsChange
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                Text(text = "保存秘钥到文件")
+                Switch(
+                    checked = saveKeysToFile,
+                    onCheckedChange = onSaveKeysToFileChange
                 )
             }
             
