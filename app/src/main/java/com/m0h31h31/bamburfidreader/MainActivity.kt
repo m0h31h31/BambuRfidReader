@@ -47,6 +47,8 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -239,6 +241,8 @@ class MainActivity : ComponentActivity() {
     private var pendingWriteItem by mutableStateOf<ShareTagItem?>(null)
     private var pendingVerifyItem by mutableStateOf<ShareTagItem?>(null)
     private var shareLoading by mutableStateOf(false)
+    private var shareRefreshStatusMessage by mutableStateOf("")
+    private var shareRefreshStatusClearJob: Job? = null
     private var miscStatusMessage by mutableStateOf("")
     // 防止 readerCallback 并发触发导致 "Close other technology first!"。
     private val readingInProgress = AtomicBoolean(false)
@@ -432,6 +436,7 @@ class MainActivity : ComponentActivity() {
                     navigateToReader = shouldNavigateToReader,
                     shareTagItems = shareTagItems,
                     shareLoading = shareLoading,
+                    shareRefreshStatusMessage = shareRefreshStatusMessage,
                     writeStatusMessage = writeStatusMessage,
                     writeInProgress = pendingWriteItem != null || pendingVerifyItem != null,
                     onTagScreenEnter = {
@@ -439,9 +444,11 @@ class MainActivity : ComponentActivity() {
                     },
                     onRefreshShareFiles = {
                         if (refreshShareTagItemsAsync()) {
-                            "正在后台刷新共享数据..."
+                            ""
                         } else {
-                            "共享数据正在刷新中，请稍候"
+                            shareRefreshStatusMessage = "共享数据正在刷新中，请稍候"
+                            scheduleClearShareRefreshStatusMessage()
+                            ""
                         }
                     },
                     onStartWriteTag = { item ->
@@ -583,7 +590,7 @@ class MainActivity : ComponentActivity() {
         try {
             filamentDbHelper?.deleteTrayInventory(db, trayUidHex)
             uiState = NfcUiState(
-                status = "出库成功，已清空当前显示，正在等待NFC..."
+                status = "出库成功"
             )
             logDebug("出库成功: $trayUidHex")
             LogCollector.append(this, "I", "出库成功: $trayUidHex")
@@ -987,6 +994,8 @@ class MainActivity : ComponentActivity() {
             return false
         }
         shareLoading = true
+        shareRefreshStatusClearJob?.cancel()
+        shareRefreshStatusMessage = "正在后台刷新共享数据..."
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 ensureBundledShareDataExtracted()
@@ -994,6 +1003,13 @@ class MainActivity : ComponentActivity() {
                 withContext(Dispatchers.Main) {
                     shareTagItems = loadedItems
                     shareLoading = false
+                    shareRefreshStatusMessage = "已刷新共享数据，共 ${loadedItems.size} 条"
+                    scheduleClearShareRefreshStatusMessage()
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    shareRefreshStatusMessage = "刷新失败: ${e.message.orEmpty()}"
+                    scheduleClearShareRefreshStatusMessage()
                 }
             } finally {
                 shareLoadingInProgress.set(false)
@@ -1003,6 +1019,14 @@ class MainActivity : ComponentActivity() {
             }
         }
         return true
+    }
+
+    private fun scheduleClearShareRefreshStatusMessage() {
+        shareRefreshStatusClearJob?.cancel()
+        shareRefreshStatusClearJob = lifecycleScope.launch(Dispatchers.Main) {
+            delay(3000)
+            shareRefreshStatusMessage = ""
+        }
     }
 
     private fun isTrayUidExists(trayUid: String): Boolean {

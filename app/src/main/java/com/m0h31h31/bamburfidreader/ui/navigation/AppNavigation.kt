@@ -69,6 +69,7 @@ fun AppNavigation(
     navigateToReader: Boolean = false,
     shareTagItems: List<ShareTagItem>,
     shareLoading: Boolean,
+    shareRefreshStatusMessage: String,
     writeStatusMessage: String,
     writeInProgress: Boolean,
     onTagScreenEnter: () -> Unit,
@@ -152,6 +153,7 @@ fun AppNavigation(
                 TagScreen(
                     items = shareTagItems,
                     loading = shareLoading,
+                    refreshStatusMessage = shareRefreshStatusMessage,
                     writeStatusMessage = writeStatusMessage,
                     writeInProgress = writeInProgress,
                     onRefresh = onRefreshShareFiles,

@@ -81,6 +81,7 @@ private fun tokenizeSearchQuery(input: String): List<String> {
 fun TagScreen(
     items: List<ShareTagItem> = emptyList(),
     loading: Boolean = false,
+    refreshStatusMessage: String = "",
     writeStatusMessage: String = "",
     writeInProgress: Boolean = false,
     onRefresh: () -> String = { "" },
@@ -147,6 +148,13 @@ fun TagScreen(
             if (hintMessage.isNotBlank()) {
                 Text(
                     text = hintMessage,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (refreshStatusMessage.isNotBlank()) {
+                Text(
+                    text = refreshStatusMessage,
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
