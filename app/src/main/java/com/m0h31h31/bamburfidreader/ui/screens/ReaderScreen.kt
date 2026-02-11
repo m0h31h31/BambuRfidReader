@@ -16,6 +16,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -64,12 +65,14 @@ fun ReaderScreen(
     ttsReady: Boolean,
     ttsLanguageReady: Boolean,
     onVoiceEnabledChange: (Boolean) -> Unit,
+    onTrayOutbound: (String) -> Unit,
     onRemainingChange: (String, Float, Int?) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     var logoTapCount by remember { mutableStateOf(0) }
     var logoLastTapAt by remember { mutableStateOf(0L) }
+    var showOutboundConfirm by remember(state.trayUidHex) { mutableStateOf(false) }
     Surface(
         modifier = modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
@@ -202,28 +205,59 @@ fun ReaderScreen(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            ColorSwatch(
-                                colorValues = state.displayColors,
-                                colorType = state.displayColorType,
-                                modifier = Modifier
-                                    .size(120.dp)
-                                    .clickable {
-                                        val now = System.currentTimeMillis()
-                                        if (now - logoLastTapAt > 1500) {
-                                            logoTapCount = 0
+                            Box(modifier = Modifier.size(120.dp)) {
+                                ColorSwatch(
+                                    colorValues = state.displayColors,
+                                    colorType = state.displayColorType,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clickable {
+                                            val now = System.currentTimeMillis()
+                                            if (now - logoLastTapAt > 1500) {
+                                                logoTapCount = 0
+                                            }
+                                            logoLastTapAt = now
+                                            logoTapCount += 1
+                                            if (logoTapCount >= 5) {
+                                                logoTapCount = 0
+                                                val result = LogCollector.packageLogs(context)
+                                                logDebug(result)
+                                                Toast
+                                                    .makeText(context, result, Toast.LENGTH_SHORT)
+                                                    .show()
+                                            }
                                         }
-                                        logoLastTapAt = now
-                                        logoTapCount += 1
-                                        if (logoTapCount >= 5) {
-                                            logoTapCount = 0
-                                            val result = LogCollector.packageLogs(context)
-                                            logDebug(result)
-                                            Toast
-                                                .makeText(context, result, Toast.LENGTH_SHORT)
-                                                .show()
-                                        }
-                                    }
-                            )
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(4.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(
+                                            if (trayUidAvailable) {
+                                                MaterialTheme.colorScheme.errorContainer
+                                            } else {
+                                                MaterialTheme.colorScheme.surfaceVariant
+                                            }
+                                        )
+                                        .clickable(enabled = trayUidAvailable) {
+                                            showOutboundConfirm = true
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "出库",
+                                        color = if (trayUidAvailable) {
+                                            MaterialTheme.colorScheme.onErrorContainer
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
                             Column(
                                 modifier = Modifier
                                     .weight(1f)
@@ -390,6 +424,30 @@ fun ReaderScreen(
 //                            )
 //                        }
                     }
+                }
+                if (showOutboundConfirm) {
+                    AlertDialog(
+                        onDismissRequest = { showOutboundConfirm = false },
+                        title = { Text("确认出库") },
+                        text = { Text("确定删除该料盘ID记录吗？") },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    onTrayOutbound(state.trayUidHex)
+                                    showOutboundConfirm = false
+                                }
+                            ) {
+                                Text("确定")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(
+                                onClick = { showOutboundConfirm = false }
+                            ) {
+                                Text("取消")
+                            }
+                        }
+                    )
                 }
 
 //                if (state.secondaryFields.isNotEmpty()) {
@@ -571,6 +629,7 @@ private fun PreviewReaderScreen() {
             ttsReady = true,
             ttsLanguageReady = true,
             onVoiceEnabledChange = {},
+            onTrayOutbound = {},
             onRemainingChange = { _, _, _ -> }
 )
     }

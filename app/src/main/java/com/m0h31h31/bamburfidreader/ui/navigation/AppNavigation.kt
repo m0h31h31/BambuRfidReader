@@ -57,6 +57,7 @@ fun AppNavigation(
     ttsLanguageReady: Boolean,
     onVoiceEnabledChange: (Boolean) -> Unit,
     onReadAllSectorsChange: (Boolean) -> Unit,
+    onTrayOutbound: (String) -> Unit,
     onRemainingChange: (String, Float, Int?) -> Unit,
     dbHelper: FilamentDbHelper?,
     onBackupDatabase: () -> String,
@@ -128,6 +129,7 @@ fun AppNavigation(
                     ttsReady = ttsReady,
                     ttsLanguageReady = ttsLanguageReady,
                     onVoiceEnabledChange = onVoiceEnabledChange,
+                    onTrayOutbound = onTrayOutbound,
                     onRemainingChange = { trayUid, percent, grams ->
                         onRemainingChange(trayUid, percent, grams)
                     }

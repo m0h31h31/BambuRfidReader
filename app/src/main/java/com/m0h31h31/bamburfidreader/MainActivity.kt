@@ -402,6 +402,9 @@ class MainActivity : ComponentActivity() {
                     onReadAllSectorsChange = {
                         readAllSectors = it
                     },
+                    onTrayOutbound = { trayUid ->
+                        removeTrayFromInventory(trayUid)
+                    },
                     onRemainingChange = { trayUid, percent, grams ->
                         updateTrayRemaining(trayUid, percent, grams)
                     },
@@ -565,6 +568,30 @@ class MainActivity : ComponentActivity() {
         }
         logDebug("更新耗材余量: $trayUidHex -> $updatedPercent%")
         LogCollector.append(this, "I", "更新耗材余量: $trayUidHex -> $updatedPercent%")
+    }
+
+    private fun removeTrayFromInventory(trayUidHex: String) {
+        if (trayUidHex.isBlank()) {
+            uiState = uiState.copy(status = "出库失败：未读取到料盘ID")
+            return
+        }
+        val db = filamentDbHelper?.writableDatabase
+        if (db == null) {
+            uiState = uiState.copy(status = "出库失败：数据库不可用")
+            return
+        }
+        try {
+            filamentDbHelper?.deleteTrayInventory(db, trayUidHex)
+            uiState = NfcUiState(
+                status = "出库成功，已清空当前显示，正在等待NFC..."
+            )
+            logDebug("出库成功: $trayUidHex")
+            LogCollector.append(this, "I", "出库成功: $trayUidHex")
+        } catch (e: Exception) {
+            uiState = uiState.copy(status = "出库失败：${e.message.orEmpty()}")
+            logDebug("出库失败: ${e.message}")
+            LogCollector.append(this, "E", "出库失败: ${e.message}")
+        }
     }
 
     private fun logEvent(message: String) {
