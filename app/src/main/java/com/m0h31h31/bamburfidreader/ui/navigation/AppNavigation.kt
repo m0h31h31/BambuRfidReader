@@ -67,7 +67,11 @@ fun AppNavigation(
     onExportTagPackage: () -> String,
     onSelectImportTagPackage: () -> String,
     navigateToReader: Boolean = false,
+    navigateToTag: Boolean = false,
+    showRecoveryAction: Boolean = false,
+    onAttemptRecovery: () -> Unit,
     shareTagItems: List<ShareTagItem>,
+    tagPreselectedFileName: String? = null,
     shareLoading: Boolean,
     shareRefreshStatusMessage: String,
     writeStatusMessage: String,
@@ -81,8 +85,16 @@ fun AppNavigation(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     
-    // 当navigateToReader为true时，导航到reader屏幕
-    if (navigateToReader && currentRoute != "reader") {
+    // 支持外部触发跳转到 tag / reader
+    if (navigateToTag && currentRoute != "tag") {
+        navController.navigate("tag") {
+            popUpTo(navController.graph.findStartDestination().id) {
+                saveState = true
+            }
+            launchSingleTop = true
+            restoreState = true
+        }
+    } else if (navigateToReader && currentRoute != "reader") {
         navController.navigate("reader") {
             popUpTo(navController.graph.findStartDestination().id) {
                 saveState = true
@@ -131,6 +143,8 @@ fun AppNavigation(
                     ttsLanguageReady = ttsLanguageReady,
                     onVoiceEnabledChange = onVoiceEnabledChange,
                     onTrayOutbound = onTrayOutbound,
+                    showRecoveryAction = showRecoveryAction,
+                    onAttemptRecovery = onAttemptRecovery,
                     onRemainingChange = { trayUid, percent, grams ->
                         onRemainingChange(trayUid, percent, grams)
                     }
@@ -153,6 +167,7 @@ fun AppNavigation(
                 TagScreen(
                     items = shareTagItems,
                     loading = shareLoading,
+                    preselectedFileName = tagPreselectedFileName,
                     refreshStatusMessage = shareRefreshStatusMessage,
                     writeStatusMessage = writeStatusMessage,
                     writeInProgress = writeInProgress,

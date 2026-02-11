@@ -19,6 +19,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Button
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -66,6 +67,8 @@ fun ReaderScreen(
     ttsLanguageReady: Boolean,
     onVoiceEnabledChange: (Boolean) -> Unit,
     onTrayOutbound: (String) -> Unit,
+    showRecoveryAction: Boolean,
+    onAttemptRecovery: () -> Unit,
     onRemainingChange: (String, Float, Int?) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -415,6 +418,14 @@ fun ReaderScreen(
 //                        }
                     }
                 }
+                if (showRecoveryAction) {
+                    Button(
+                        onClick = onAttemptRecovery,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(text = "尝试修复")
+                    }
+                }
                 if (showOutboundConfirm) {
                     AlertDialog(
                         onDismissRequest = { showOutboundConfirm = false },
@@ -625,6 +636,8 @@ private fun PreviewReaderScreen() {
             ttsLanguageReady = true,
             onVoiceEnabledChange = {},
             onTrayOutbound = {},
+            showRecoveryAction = true,
+            onAttemptRecovery = {},
             onRemainingChange = { _, _, _ -> }
 )
     }

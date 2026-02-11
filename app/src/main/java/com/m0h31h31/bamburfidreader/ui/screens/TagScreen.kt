@@ -6,6 +6,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -81,6 +82,7 @@ private fun tokenizeSearchQuery(input: String): List<String> {
 fun TagScreen(
     items: List<ShareTagItem> = emptyList(),
     loading: Boolean = false,
+    preselectedFileName: String? = null,
     refreshStatusMessage: String = "",
     writeStatusMessage: String = "",
     writeInProgress: Boolean = false,
@@ -92,6 +94,13 @@ fun TagScreen(
     var query by remember { mutableStateOf("") }
     var selectedFileName by remember { mutableStateOf<String?>(null) }
     var hintMessage by remember { mutableStateOf("") }
+
+    LaunchedEffect(preselectedFileName, items) {
+        val target = preselectedFileName
+        if (!target.isNullOrBlank() && items.any { it.fileName == target }) {
+            selectedFileName = target
+        }
+    }
 
     val filteredItems = remember(items, query) {
         val tokens = tokenizeSearchQuery(query)

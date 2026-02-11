@@ -256,6 +256,8 @@ class MainActivity : ComponentActivity() {
     private var ttsLanguageReady by mutableStateOf(false)
     private var lastSpokenKey: String? = null
     private var shouldNavigateToReader by mutableStateOf(false)
+    private var shouldNavigateToTag by mutableStateOf(false)
+    private var tagPreselectedFileName by mutableStateOf<String?>(null)
     // 原始读卡临时缓存：readTag 仅负责写入；解析函数从此读取。
     private var latestRawTagData: RawTagReadData? = null
     private var shareTagItems by mutableStateOf<List<ShareTagItem>>(emptyList())
@@ -431,6 +433,9 @@ class MainActivity : ComponentActivity() {
                     onTrayOutbound = { trayUid ->
                         removeTrayFromInventory(trayUid)
                     },
+                    showRecoveryAction = uiState.status == uiString(R.string.status_read_partial) &&
+                        uiState.uidHex.isNotBlank(),
+                    onAttemptRecovery = { attemptRecoveryFromPartialRead() },
                     onRemainingChange = { trayUid, percent, grams ->
                         updateTrayRemaining(trayUid, percent, grams)
                     },
@@ -456,7 +461,9 @@ class MainActivity : ComponentActivity() {
                         message
                     },
                     navigateToReader = shouldNavigateToReader,
+                    navigateToTag = shouldNavigateToTag,
                     shareTagItems = shareTagItems,
+                    tagPreselectedFileName = tagPreselectedFileName,
                     shareLoading = shareLoading,
                     shareRefreshStatusMessage = shareRefreshStatusMessage,
                     writeStatusMessage = writeStatusMessage,
@@ -474,25 +481,7 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     onStartWriteTag = { item ->
-                        val trayUid = item.trayUid.trim()
-                        if (trayUid.isNotBlank() && isTrayUidExists(trayUid)) {
-                            android.app.AlertDialog.Builder(this@MainActivity)
-                                .setTitle("料盘ID重复")
-                                .setMessage("库存中已存在料盘ID：$trayUid，是否仍然继续复制写入？")
-                                .setPositiveButton("继续复制") { _, _ ->
-                                    pendingWriteItem = item
-                                    pendingVerifyItem = null
-                                    writeStatusMessage = "写入准备就绪：请将目标空白标签紧贴 NFC 区域，保持静止直到完成。"
-                                }
-                                .setNegativeButton("取消") { _, _ ->
-                                    writeStatusMessage = "已取消：检测到重复料盘ID，未开始写入"
-                                }
-                                .show()
-                        } else {
-                            pendingWriteItem = item
-                            pendingVerifyItem = null
-                            writeStatusMessage = "写入准备就绪：请将目标空白标签紧贴 NFC 区域，保持静止直到完成。"
-                        }
+                        enqueueWriteTask(item)
                     },
                     onCancelWriteTag = {
                         pendingWriteItem = null
@@ -503,6 +492,56 @@ class MainActivity : ComponentActivity() {
                 // 重置导航标志
                 if (shouldNavigateToReader) {
                     shouldNavigateToReader = false
+                }
+                if (shouldNavigateToTag) {
+                    shouldNavigateToTag = false
+                }
+            }
+        }
+    }
+
+    private fun enqueueWriteTask(item: ShareTagItem) {
+        val trayUid = item.trayUid.trim()
+        if (trayUid.isNotBlank() && isTrayUidExists(trayUid)) {
+            android.app.AlertDialog.Builder(this@MainActivity)
+                .setTitle("料盘ID重复")
+                .setMessage("库存中已存在料盘ID：$trayUid，是否仍然继续复制写入？")
+                .setPositiveButton("继续复制") { _, _ ->
+                    pendingWriteItem = item
+                    pendingVerifyItem = null
+                    writeStatusMessage = "写入准备就绪：请将目标空白标签紧贴 NFC 区域，保持静止直到完成。"
+                }
+                .setNegativeButton("取消") { _, _ ->
+                    writeStatusMessage = "已取消：检测到重复料盘ID，未开始写入"
+                }
+                .show()
+        } else {
+            pendingWriteItem = item
+            pendingVerifyItem = null
+            writeStatusMessage = "写入准备就绪：请将目标空白标签紧贴 NFC 区域，保持静止直到完成。"
+        }
+    }
+
+    private fun attemptRecoveryFromPartialRead() {
+        val uid = uiState.uidHex.trim().uppercase(Locale.US)
+        if (uid.isBlank()) {
+            writeStatusMessage = "修复失败：未读取到UID"
+            return
+        }
+        writeStatusMessage = "正在尝试修复：按UID匹配共享文件..."
+        lifecycleScope.launch(Dispatchers.IO) {
+            val loaded = loadShareTagItems()
+            val matched = loaded.firstOrNull { it.sourceUid.uppercase(Locale.US) == uid }
+            withContext(Dispatchers.Main) {
+                shareTagItems = loaded
+                shouldNavigateToTag = true
+                if (matched != null) {
+                    tagPreselectedFileName = matched.fileName
+                    enqueueWriteTask(matched)
+                    writeStatusMessage = "已找到匹配文件并进入恢复写入：${matched.fileName.removeSuffix(".txt")}"
+                } else {
+                    tagPreselectedFileName = null
+                    writeStatusMessage = "未找到UID=$uid 对应的数据文件，请在标签页手动选择"
                 }
             }
         }
