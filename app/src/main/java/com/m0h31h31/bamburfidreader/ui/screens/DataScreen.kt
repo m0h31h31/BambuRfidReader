@@ -3,9 +3,14 @@ package com.m0h31h31.bamburfidreader.ui.screens
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.clickable
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
@@ -23,9 +28,28 @@ import com.m0h31h31.bamburfidreader.ui.components.ColorSwatch
 import androidx.compose.foundation.layout.FlowRow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlin.math.min
-import kotlin.math.sqrt
 import androidx.compose.foundation.ExperimentalFoundationApi
+
+private data class StackedColorGroup(
+    val stackKey: String,
+    val displayItem: InventoryItem,
+    val items: List<InventoryItem>
+) {
+    val count: Int get() = items.size
+}
+
+private fun buildColorStackKey(item: InventoryItem): String {
+    val normalizedValues = item.colorValues
+        .map { it.trim().uppercase() }
+        .filter { it.isNotBlank() }
+        .sorted()
+        .joinToString(",")
+    return listOf(
+        item.colorType.trim().lowercase(),
+        item.colorName.trim().lowercase(),
+        if (normalizedValues.isNotBlank()) normalizedValues else item.colorCode.trim().lowercase()
+    ).joinToString("|")
+}
 
 // 计算颜色亮度，返回值范围0-1，值越大越亮
 private fun calculateBrightness(color: androidx.compose.ui.graphics.Color): Float {
@@ -78,6 +102,8 @@ fun DataScreen(dbHelper: FilamentDbHelper?, modifier: Modifier = Modifier) {
     val groupedItems = remember { mutableStateOf(mapOf<String, List<InventoryItem>>()) }
     val isLoading = remember { mutableStateOf(true) }
     val useDetailedClassification = remember { mutableStateOf(false) }
+    val mergeSameColorItems = remember { mutableStateOf(false) }
+    val activeStackDialog = remember { mutableStateOf<StackedColorGroup?>(null) }
 
     LaunchedEffect(dbHelper, useDetailedClassification.value) {
         val db = dbHelper?.readableDatabase
@@ -133,11 +159,23 @@ fun DataScreen(dbHelper: FilamentDbHelper?, modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(text = "分类方案：")
-            androidx.compose.material3.Switch(
+            Switch(
                 checked = useDetailedClassification.value,
                 onCheckedChange = { useDetailedClassification.value = it }
             )
             Text(text = if (useDetailedClassification.value) "详细" else "简洁")
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(text = "同类耗材合并：")
+            Switch(
+                checked = mergeSameColorItems.value,
+                onCheckedChange = { mergeSameColorItems.value = it }
+            )
+            Text(text = if (mergeSameColorItems.value) "开启" else "关闭")
         }
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -164,6 +202,23 @@ fun DataScreen(dbHelper: FilamentDbHelper?, modifier: Modifier = Modifier) {
             ) {
                 groupedItems.value.forEach { (materialType, items) ->
                     item {
+                        val stackedGroups = if (mergeSameColorItems.value) {
+                            items.groupBy { buildColorStackKey(it) }
+                                .map { (stackKey, grouped) ->
+                                    StackedColorGroup(
+                                        stackKey = stackKey,
+                                        displayItem = grouped.first(),
+                                        items = grouped
+                                    )
+                                }
+                                .sortedWith(
+                                    compareByDescending<StackedColorGroup> { it.count }
+                                        .thenBy { it.displayItem.colorName }
+                                )
+                        } else {
+                            emptyList()
+                        }
+
                         Column(
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
@@ -173,47 +228,133 @@ fun DataScreen(dbHelper: FilamentDbHelper?, modifier: Modifier = Modifier) {
                                 fontWeight = FontWeight.Medium
                             )
                             // 使用FlowRow实现自适应宽度的色块布局
-                            FlowRow(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                verticalArrangement = Arrangement.spacedBy(2.dp)
-                            ) {
-                                items.forEach { item ->
-                                    // 确保每个色块大小不小于20.dp
-                                    val blockSize = 60.dp // 可以根据需要调整基础大小
-                                    
-                                    Column(
-                                        modifier = Modifier.width(blockSize),
-                                        horizontalAlignment = Alignment.CenterHorizontally
-                                    ) {
-                                        Box(
-                                            modifier = Modifier.size(blockSize)
+                            if (!mergeSameColorItems.value) {
+                                FlowRow(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    items.forEach { item ->
+                                        val blockSize = 60.dp
+                                        Column(
+                                            modifier = Modifier.width(blockSize),
+                                            horizontalAlignment = Alignment.CenterHorizontally
                                         ) {
-                                            ColorSwatch(
-                                                colorValues = item.colorValues,
-                                                colorType = item.colorType,
-                                                modifier = Modifier.fillMaxSize()
-                                            )
-                                            val textColor = getTextColorForBackground(item.colorValues, item.colorCode)
-                                            Column(
-                                                modifier = Modifier
-                                                    .align(Alignment.Center)
-                                                    .padding(4.dp),
-                                                horizontalAlignment = Alignment.CenterHorizontally
+                                            Box(
+                                                modifier = Modifier.size(blockSize)
                                             ) {
-                                                Text(
-                                                    text = item.colorName.take(4), // 取前4个字符，避免过长
-                                                    fontSize = 10.sp,
-                                                    color = textColor,
-                                                    textAlign = TextAlign.Center,
-                                                    modifier = Modifier.padding(bottom = 2.dp)
+                                                ColorSwatch(
+                                                    colorValues = item.colorValues,
+                                                    colorType = item.colorType,
+                                                    modifier = Modifier.fillMaxSize()
                                                 )
-                                                Text(
-                                                    text = String.format("%.1f%%", item.remainingPercent),
-                                                    fontSize = 10.sp,
-                                                    color = textColor,
-                                                    textAlign = TextAlign.Center
+                                                val textColor = getTextColorForBackground(
+                                                    item.colorValues,
+                                                    item.colorCode
                                                 )
+                                                Column(
+                                                    modifier = Modifier
+                                                        .align(Alignment.Center)
+                                                        .padding(4.dp),
+                                                    horizontalAlignment = Alignment.CenterHorizontally
+                                                ) {
+                                                    Text(
+                                                        text = item.colorName.take(4),
+                                                        fontSize = 10.sp,
+                                                        color = textColor,
+                                                        textAlign = TextAlign.Center,
+                                                        modifier = Modifier.padding(bottom = 2.dp)
+                                                    )
+                                                    Text(
+                                                        text = String.format("%.1f%%", item.remainingPercent),
+                                                        fontSize = 10.sp,
+                                                        color = textColor,
+                                                        textAlign = TextAlign.Center
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                FlowRow(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    stackedGroups.forEach { stack ->
+                                        val blockSize = 60.dp
+                                        Column(
+                                            modifier = Modifier.width(blockSize),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(blockSize)
+                                                    .clickable {
+                                                        if (stack.count > 1) {
+                                                            activeStackDialog.value = stack
+                                                        }
+                                                    }
+                                            ) {
+                                                ColorSwatch(
+                                                    colorValues = stack.displayItem.colorValues,
+                                                    colorType = stack.displayItem.colorType,
+                                                    modifier = Modifier.fillMaxSize()
+                                                )
+                                                val textColor = getTextColorForBackground(
+                                                    stack.displayItem.colorValues,
+                                                    stack.displayItem.colorCode
+                                                )
+                                                if (stack.count > 1) {
+                                                    Text(
+                                                        text = stack.displayItem.colorName.take(4),
+                                                        fontSize = 10.sp,
+                                                        color = textColor,
+                                                        textAlign = TextAlign.Center,
+                                                        modifier = Modifier
+                                                            .align(Alignment.Center)
+                                                            .padding(horizontal = 3.dp)
+                                                    )
+                                                } else {
+                                                    Column(
+                                                        modifier = Modifier
+                                                            .align(Alignment.Center)
+                                                            .padding(4.dp),
+                                                        horizontalAlignment = Alignment.CenterHorizontally
+                                                    ) {
+                                                        Text(
+                                                            text = stack.displayItem.colorName.take(4),
+                                                            fontSize = 10.sp,
+                                                            color = textColor,
+                                                            textAlign = TextAlign.Center,
+                                                            modifier = Modifier.padding(bottom = 2.dp)
+                                                        )
+                                                        Text(
+                                                            text = String.format("%.1f%%", stack.displayItem.remainingPercent),
+                                                            fontSize = 10.sp,
+                                                            color = textColor,
+                                                            textAlign = TextAlign.Center
+                                                        )
+                                                    }
+                                                }
+                                                if (stack.count > 1) {
+                                                    Card(
+                                                        modifier = Modifier
+                                                            .align(Alignment.TopEnd)
+                                                            .padding(2.dp),
+                                                        colors = CardDefaults.cardColors(
+                                                            containerColor = Color(0xAA000000)
+                                                        )
+                                                    ) {
+                                                        Text(
+                                                            text = "${stack.count}",
+                                                            fontSize = 9.sp,
+                                                            color = Color.White,
+                                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                        )
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -224,5 +365,69 @@ fun DataScreen(dbHelper: FilamentDbHelper?, modifier: Modifier = Modifier) {
                 }
             }
         }
+    }
+
+    val dialogStack = activeStackDialog.value
+    if (dialogStack != null) {
+        AlertDialog(
+            onDismissRequest = { activeStackDialog.value = null },
+            title = {
+                Text(
+                    text = "${dialogStack.displayItem.colorName.ifBlank { "未知颜色" }} · ${dialogStack.count}",
+                    fontWeight = FontWeight.SemiBold
+                )
+            },
+            text = {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(dialogStack.items) { item ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                ColorSwatch(
+                                    colorValues = item.colorValues,
+                                    colorType = item.colorType,
+                                    modifier = Modifier.size(30.dp)
+                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = item.colorName.ifBlank { "未知颜色" },
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = "UID ${item.trayUid.takeLast(8)}",
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Text(
+                                    text = String.format("%.1f%%", item.remainingPercent),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { activeStackDialog.value = null }) {
+                    Text("关闭")
+                }
+            }
+        )
     }
 }
