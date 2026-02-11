@@ -2,7 +2,6 @@ package com.m0h31h31.bamburfidreader
 
 import android.nfc.Tag
 import android.nfc.tech.MifareClassic
-import android.nfc.tech.NfcA
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.Locale
@@ -14,8 +13,9 @@ private const val KEY_LENGTH_BYTES = 6
 private const val SECTOR_COUNT = 16
 
 // === 稳定性/速度参数（按需调整） ===
-private const val NFCA_TIMEOUT_MS = 600        // 300~1000 之间试，600 通常较稳
 private const val INTER_BLOCK_DELAY_MS = 0L    // 想更稳可设 5~10；追求极致速度保持 0
+private const val AUTH_RETRY_COUNT = 2          // 认证失败重试次数（总尝试=1+重试）
+private const val READ_BLOCK_RETRY_COUNT = 1    // 单块读失败重试次数
 
 // Bambu RFID 的密钥派生固定盐值。
 private val HKDF_SALT = byteArrayOf(
@@ -122,18 +122,9 @@ object NfcTagReader {
             keyB1Hex = keyB1Hex
         )
 
-        // 可选：设置 NfcA timeout（更稳）
-        val nfca = try { NfcA.get(tag) } catch (_: Exception) { null }
-
         return try {
             // 4) connect 一次
             mifare.connect()
-            try {
-                nfca?.connect()
-                nfca?.timeout = NFCA_TIMEOUT_MS
-            } catch (_: Exception) {
-                // 不影响主流程
-            }
 
             // rawBlocks 用 mifare.blockCount 动态生成（兼容 1K/4K）
             val rawBlocks = MutableList<ByteArray?>(mifare.blockCount) { null }
@@ -215,7 +206,6 @@ object NfcTagReader {
                 appendLog("I", "已断开 MIFARE Classic")
             } catch (_: IOException) {
             }
-            try { nfca?.close() } catch (_: Exception) {}
         }
     }
 }
@@ -236,9 +226,12 @@ private fun readSectorOptimized(
     logger: (String) -> Unit
 ): SectorReadResult {
 
-    val authenticated =
-        (keyA != null && mifare.authenticateSectorWithKeyA(sectorIndex, keyA)) ||
-                (keyB != null && mifare.authenticateSectorWithKeyB(sectorIndex, keyB))
+    val authenticated = authenticateSectorWithRetry(
+        mifare = mifare,
+        sectorIndex = sectorIndex,
+        keyA = keyA,
+        keyB = keyB
+    )
 
     if (!authenticated) {
         return SectorReadResult(emptyList(), "扇区 $sectorIndex 认证失败")
@@ -252,23 +245,62 @@ private fun readSectorOptimized(
     val blocks = ArrayList<ByteArray>(blocksToRead)
     for (offset in 0 until blocksToRead) {
         val absBlock = startBlock + offset
-        try {
-            // 可选：想要更稳可以打开耗时日志
-            // val t0 = System.nanoTime()
-            val data = mifare.readBlock(absBlock)
-            // val costMs = (System.nanoTime() - t0) / 1_000_000
-            // logger("[READ] sector=$sectorIndex block=$absBlock cost=${costMs}ms data=${data.toHexOrNull()}")
+        var blockData: ByteArray? = null
+        var lastError: Exception? = null
 
-            blocks.add(data)
+        for (attempt in 0..READ_BLOCK_RETRY_COUNT) {
+            try {
+                val raw = mifare.readBlock(absBlock)
+                blockData = when {
+                    raw.size == 16 -> raw
+                    raw.size > 16 -> raw.copyOf(16)
+                    else -> throw IOException("返回长度异常(${raw.size})")
+                }
+                break
+            } catch (e: Exception) {
+                lastError = e
+                // 读失败后按 MCReader 思路重认证一次再重试。
+                val reAuthOk = authenticateSectorWithRetry(
+                    mifare = mifare,
+                    sectorIndex = sectorIndex,
+                    keyA = keyA,
+                    keyB = keyB
+                )
+                if (!reAuthOk) {
+                    break
+                }
+            }
+        }
 
-            if (INTER_BLOCK_DELAY_MS > 0) Thread.sleep(INTER_BLOCK_DELAY_MS)
-        } catch (e: Exception) {
-            val err = "读 block=$absBlock 失败: ${e.javaClass.simpleName}: ${e.message}"
+        if (blockData == null) {
+            val err = "读 block=$absBlock 失败: ${lastError?.javaClass?.simpleName}: ${lastError?.message}"
             return SectorReadResult(blocks, err)
         }
+        blocks.add(blockData)
+
+        if (INTER_BLOCK_DELAY_MS > 0) Thread.sleep(INTER_BLOCK_DELAY_MS)
     }
 
     return SectorReadResult(blocks, "")
+}
+
+private fun authenticateSectorWithRetry(
+    mifare: MifareClassic,
+    sectorIndex: Int,
+    keyA: ByteArray?,
+    keyB: ByteArray?
+): Boolean {
+    for (attempt in 0..AUTH_RETRY_COUNT) {
+        try {
+            val okA = keyA != null && mifare.authenticateSectorWithKeyA(sectorIndex, keyA)
+            if (okA) return true
+            val okB = keyB != null && mifare.authenticateSectorWithKeyB(sectorIndex, keyB)
+            if (okB) return true
+        } catch (_: Exception) {
+            // Ignore and retry.
+        }
+    }
+    return false
 }
 
 /**

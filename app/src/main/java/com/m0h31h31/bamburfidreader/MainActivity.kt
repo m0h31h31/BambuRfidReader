@@ -71,6 +71,9 @@ private const val SHARE_EXTRACT_MARKER_FILE = ".bundle_extracted"
 private const val SHARE_IMPORT_ZIP_MIME = "application/zip"
 private const val WRITE_KEY_LENGTH_BYTES = 6
 private const val WRITE_SECTOR_COUNT = 16
+private const val RW_AUTH_RETRY_COUNT = 2
+private const val RW_BLOCK_RETRY_COUNT = 1
+private const val WRITE_RESUME_MAX_ATTEMPTS = 3
 private val WRITE_HKDF_SALT = byteArrayOf(
     0x9a.toByte(), 0x75.toByte(), 0x9c.toByte(), 0xf2.toByte(),
     0xc4.toByte(), 0xf7.toByte(), 0xca.toByte(), 0xff.toByte(),
@@ -216,6 +219,25 @@ data class ShareTagItem(
     val colorType: String,
     val colorValues: List<String>,
     val rawBlocks: List<ByteArray?>
+)
+
+private data class WriteResumePoint(
+    val sector: Int,
+    val blockOffset: Int
+)
+
+private enum class WritePrecheckAction {
+    START_FROM_BEGINNING,
+    RESUME_FROM_POINT,
+    ALREADY_MATCHED,
+    BLOCKED_CONFLICT,
+    BLOCKED_UNREADABLE
+}
+
+private data class WritePrecheckResult(
+    val action: WritePrecheckAction,
+    val resumePoint: WriteResumePoint = WriteResumePoint(0, 0),
+    val message: String = ""
 )
 
 class MainActivity : ComponentActivity() {
@@ -1073,46 +1095,105 @@ class MainActivity : ComponentActivity() {
         val ffKey = ByteArray(6) { 0xFF.toByte() }
 
         return try {
-            mifare.connect()
-            // 给用户一点放稳标签的时间，降低写入开始时抖动风险。
-            Thread.sleep(700)
+            var resumePoint = WriteResumePoint(sector = 0, blockOffset = 0)
+            var recoverAttempts = 0
 
-            for (sector in 0 until 16) {
-                val trailerIndex = sector * 4 + 3
-                val trailerData = sourceBlocks.getOrNull(trailerIndex)
-                val sourceKeyA = if (trailerData != null && trailerData.size == 16) {
-                    trailerData.copyOfRange(0, 6)
-                } else null
-                val sourceKeyB = if (trailerData != null && trailerData.size == 16) {
-                    trailerData.copyOfRange(10, 16)
-                } else null
-
-                val authenticated =
-                    // 空卡默认全 FF 密钥，优先尝试 FF；再回退派生密钥，兼容非空卡。
-                    mifare.authenticateSectorWithKeyA(sector, ffKey) ||
-                        mifare.authenticateSectorWithKeyB(sector, ffKey) ||
-                        (sourceKeyA != null && mifare.authenticateSectorWithKeyA(sector, sourceKeyA)) ||
-                        (sourceKeyB != null && mifare.authenticateSectorWithKeyB(sector, sourceKeyB))
-                if (!authenticated) {
-                    return "写入失败：扇区 $sector 认证失败"
-                }
-
-                val startBlock = mifare.sectorToBlock(sector)
-                for (offset in 0 until 4) {
-                    val blockIndex = startBlock + offset
-
-                    // 严格 1:1 按文件写入（包括 trailer 密钥与权限位）。
-                    val targetData = sourceBlocks.getOrNull(blockIndex)
-                        ?: return "写入失败：区块 $blockIndex 源数据缺失"
-                    if (targetData.size != 16) {
-                        return "写入失败：区块 $blockIndex 数据长度异常"
+            while (resumePoint.sector < WRITE_SECTOR_COUNT) {
+                try {
+                    if (!mifare.isConnected) {
+                        mifare.connect()
+                        // 首次/重连后给用户与链路一点稳定时间。
+                        Thread.sleep(if (recoverAttempts == 0) 700 else 300)
                     }
 
-                    mifare.writeBlock(blockIndex, targetData)
-                    // 每块间隔一点点，降低连续写导致的链路抖动。
-                    Thread.sleep(20)
+                    // 仅在首次写入前执行一次硬性预检查，避免 FUID 卡写坏。
+                    if (recoverAttempts == 0 && resumePoint.sector == 0 && resumePoint.blockOffset == 0) {
+                        val precheck = precheckBeforeWrite(mifare, sourceBlocks)
+                        when (precheck.action) {
+                            WritePrecheckAction.ALREADY_MATCHED -> {
+                                return "写入前检查：目标卡已是目标数据，无需重复写入"
+                            }
+                            WritePrecheckAction.BLOCKED_CONFLICT,
+                            WritePrecheckAction.BLOCKED_UNREADABLE -> {
+                                return "写入前检查失败：${precheck.message}"
+                            }
+                            WritePrecheckAction.RESUME_FROM_POINT -> {
+                                resumePoint = precheck.resumePoint
+                            }
+                            WritePrecheckAction.START_FROM_BEGINNING -> {
+                                resumePoint = WriteResumePoint(0, 0)
+                            }
+                        }
+                    }
+
+                    for (sector in resumePoint.sector until WRITE_SECTOR_COUNT) {
+                        val trailerIndex = sector * 4 + 3
+                        val trailerData = sourceBlocks.getOrNull(trailerIndex)
+                        val sourceKeyA = if (trailerData != null && trailerData.size == 16) {
+                            trailerData.copyOfRange(0, 6)
+                        } else null
+                        val sourceKeyB = if (trailerData != null && trailerData.size == 16) {
+                            trailerData.copyOfRange(10, 16)
+                        } else null
+
+                        val authenticated = authenticateSectorWithRetry(
+                            mifare = mifare,
+                            sectorIndex = sector,
+                            keysA = listOf(ffKey, sourceKeyA),
+                            keysB = listOf(ffKey, sourceKeyB)
+                        )
+                        if (!authenticated) {
+                            return "写入失败：扇区 $sector 认证失败"
+                        }
+
+                        val startBlock = mifare.sectorToBlock(sector)
+                        val startOffset = if (sector == resumePoint.sector) {
+                            resumePoint.blockOffset
+                        } else {
+                            0
+                        }
+
+                        for (offset in startOffset until 4) {
+                            val blockIndex = startBlock + offset
+                            // 严格 1:1 按文件写入（包括 trailer 密钥与权限位）。
+                            val targetData = sourceBlocks.getOrNull(blockIndex)
+                                ?: return "写入失败：区块 $blockIndex 源数据缺失"
+                            if (targetData.size != 16) {
+                                return "写入失败：区块 $blockIndex 数据长度异常"
+                            }
+
+                            val writeOk = writeBlockWithRetry(mifare, blockIndex, targetData)
+                            if (!writeOk) {
+                                throw IOException("区块 $blockIndex 写入异常")
+                            }
+                            // 每块间隔一点点，降低连续写导致的链路抖动。
+                            Thread.sleep(20)
+                        }
+                    }
+
+                    // 全部写完，跳出 while。
+                    resumePoint = WriteResumePoint(WRITE_SECTOR_COUNT, 0)
+                } catch (e: Exception) {
+                    recoverAttempts++
+                    try {
+                        mifare.close()
+                    } catch (_: Exception) {
+                    }
+                    if (recoverAttempts > WRITE_RESUME_MAX_ATTEMPTS) {
+                        return "写入失败：${e.message.orEmpty()}（已超过续写重试次数）"
+                    }
+                    val detected = detectWriteResumePoint(tag, sourceBlocks)
+                    if (detected == null) {
+                        return "写入失败：中断后无法定位断点"
+                    }
+                    if (detected.sector >= WRITE_SECTOR_COUNT) {
+                        // 探测到全卡已是目标内容，视为成功。
+                        return "写入成功：断线后校验断点显示已完成全部写入"
+                    }
+                    resumePoint = detected
                 }
             }
+
             "写入成功：已完成全部区块写入"
         } catch (e: Exception) {
             "写入失败：${e.message.orEmpty()}"
@@ -1143,9 +1224,12 @@ class MainActivity : ComponentActivity() {
                 }
                 val sourceKeyA = trailerData.copyOfRange(0, 6)
                 val sourceKeyB = trailerData.copyOfRange(10, 16)
-                val authenticated =
-                    mifare.authenticateSectorWithKeyA(sector, sourceKeyA) ||
-                        mifare.authenticateSectorWithKeyB(sector, sourceKeyB)
+                val authenticated = authenticateSectorWithRetry(
+                    mifare = mifare,
+                    sectorIndex = sector,
+                    keysA = listOf(sourceKeyA),
+                    keysB = listOf(sourceKeyB)
+                )
                 if (!authenticated) {
                     return "校验失败：扇区 $sector 使用文件秘钥认证失败"
                 }
@@ -1153,7 +1237,8 @@ class MainActivity : ComponentActivity() {
                 val startBlock = mifare.sectorToBlock(sector)
                 for (offset in 0 until 4) {
                     val blockIndex = startBlock + offset
-                    val actual = mifare.readBlock(blockIndex)
+                    val actual = readBlockWithRetry(mifare, blockIndex)
+                        ?: return "校验失败：区块 $blockIndex 读取异常"
                     readBackBlocks[blockIndex] = actual
                 }
             }
@@ -1192,6 +1277,262 @@ class MainActivity : ComponentActivity() {
             } catch (_: Exception) {
             }
         }
+    }
+
+    /**
+     * 断线后用“源标签密钥”探测写入进度，返回应继续写入的扇区/区块位置。
+     * 规则：
+     * 1) 优先用源 trailer 里的 KeyA/KeyB 认证；
+     * 2) 对已可读扇区逐块比较目标内容（trailer 仅比较访问位 6..9）；
+     * 3) 返回第一个不一致块作为续写起点。
+     */
+    private fun detectWriteResumePoint(
+        tag: Tag,
+        sourceBlocks: List<ByteArray?>
+    ): WriteResumePoint? {
+        val mifare = MifareClassic.get(tag) ?: return null
+        return try {
+            mifare.connect()
+            for (sector in 0 until WRITE_SECTOR_COUNT) {
+                val trailerIndex = sector * 4 + 3
+                val trailerData = sourceBlocks.getOrNull(trailerIndex) ?: return WriteResumePoint(sector, 0)
+                if (trailerData.size != 16) return WriteResumePoint(sector, 0)
+                val sourceKeyA = trailerData.copyOfRange(0, 6)
+                val sourceKeyB = trailerData.copyOfRange(10, 16)
+
+                val authBySourceKey = authenticateSectorWithRetry(
+                    mifare = mifare,
+                    sectorIndex = sector,
+                    keysA = listOf(sourceKeyA),
+                    keysB = listOf(sourceKeyB)
+                )
+                if (!authBySourceKey) {
+                    // 该扇区大概率尚未写到 trailer（或写入未完成），从此扇区起继续。
+                    return WriteResumePoint(sector, 0)
+                }
+
+                val startBlock = mifare.sectorToBlock(sector)
+                for (offset in 0 until 4) {
+                    val blockIndex = startBlock + offset
+                    val expected = sourceBlocks.getOrNull(blockIndex) ?: return WriteResumePoint(sector, offset)
+                    if (expected.size != 16) return WriteResumePoint(sector, offset)
+                    val actual = readBlockWithRetry(mifare, blockIndex) ?: return WriteResumePoint(sector, offset)
+
+                    if (!isBlockEquivalentForResume(blockIndex, expected, actual)) {
+                        return WriteResumePoint(sector, offset)
+                    }
+                }
+            }
+            WriteResumePoint(WRITE_SECTOR_COUNT, 0)
+        } catch (_: Exception) {
+            null
+        } finally {
+            try {
+                mifare.close()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    /**
+     * 写入前预检查：
+     * - 空白卡：从头写；
+     * - 已部分写入且前缀内容一致：从断点续写；
+     * - 已写入其他内容/不可识别：阻止写入。
+     */
+    private fun precheckBeforeWrite(
+        mifare: MifareClassic,
+        sourceBlocks: List<ByteArray?>
+    ): WritePrecheckResult {
+        val ffKey = ByteArray(6) { 0xFF.toByte() }
+        var resumePoint: WriteResumePoint? = null
+        var matchedAnyBlock = false
+
+        for (sector in 0 until WRITE_SECTOR_COUNT) {
+            val trailerIndex = sector * 4 + 3
+            val trailerData = sourceBlocks.getOrNull(trailerIndex)
+                ?: return WritePrecheckResult(
+                    action = WritePrecheckAction.BLOCKED_CONFLICT,
+                    message = "源数据缺少扇区 $sector trailer"
+                )
+            if (trailerData.size != 16) {
+                return WritePrecheckResult(
+                    action = WritePrecheckAction.BLOCKED_CONFLICT,
+                    message = "源数据扇区 $sector trailer 长度异常"
+                )
+            }
+            val sourceKeyA = trailerData.copyOfRange(0, 6)
+            val sourceKeyB = trailerData.copyOfRange(10, 16)
+            val authBySource = authenticateSectorWithRetry(
+                mifare = mifare,
+                sectorIndex = sector,
+                keysA = listOf(sourceKeyA),
+                keysB = listOf(sourceKeyB)
+            )
+            val authByFF = if (!authBySource) {
+                authenticateSectorWithRetry(
+                    mifare = mifare,
+                    sectorIndex = sector,
+                    keysA = listOf(ffKey),
+                    keysB = listOf(ffKey)
+                )
+            } else {
+                false
+            }
+
+            if (!authBySource && !authByFF) {
+                return WritePrecheckResult(
+                    action = WritePrecheckAction.BLOCKED_UNREADABLE,
+                    message = "扇区 $sector 无法认证（既非空白卡也非目标卡）"
+                )
+            }
+
+            val startBlock = mifare.sectorToBlock(sector)
+            for (offset in 0 until 4) {
+                val blockIndex = startBlock + offset
+                val expected = sourceBlocks.getOrNull(blockIndex)
+                    ?: return WritePrecheckResult(
+                        action = WritePrecheckAction.BLOCKED_CONFLICT,
+                        message = "源数据缺少区块 $blockIndex"
+                    )
+                if (expected.size != 16) {
+                    return WritePrecheckResult(
+                        action = WritePrecheckAction.BLOCKED_CONFLICT,
+                        message = "源数据区块 $blockIndex 长度异常"
+                    )
+                }
+                val actual = readBlockWithRetry(mifare, blockIndex)
+                    ?: return WritePrecheckResult(
+                        action = WritePrecheckAction.BLOCKED_UNREADABLE,
+                        message = "读取区块 $blockIndex 失败"
+                    )
+
+                val matched = isBlockEquivalentForResume(blockIndex, expected, actual)
+                val blankLike = isBlankLikeBlock(blockIndex, actual)
+                if (matched) {
+                    matchedAnyBlock = true
+                    continue
+                }
+                if (blankLike) {
+                    if (resumePoint == null) {
+                        resumePoint = WriteResumePoint(sector, offset)
+                    }
+                    // 第一个空白断点之后不再强制要求连续匹配，续写将覆盖后续。
+                    break
+                }
+                return WritePrecheckResult(
+                    action = WritePrecheckAction.BLOCKED_CONFLICT,
+                    message = "区块 $blockIndex 存在非目标数据，已阻止写入"
+                )
+            }
+            if (resumePoint != null) {
+                break
+            }
+        }
+
+        return when {
+            resumePoint != null && (resumePoint.sector > 0 || resumePoint.blockOffset > 0) ->
+                WritePrecheckResult(
+                    action = WritePrecheckAction.RESUME_FROM_POINT,
+                    resumePoint = resumePoint
+                )
+            matchedAnyBlock && resumePoint == null ->
+                WritePrecheckResult(action = WritePrecheckAction.ALREADY_MATCHED)
+            else ->
+                WritePrecheckResult(action = WritePrecheckAction.START_FROM_BEGINNING)
+        }
+    }
+
+    private fun isBlockEquivalentForResume(
+        blockIndex: Int,
+        expected: ByteArray,
+        actual: ByteArray
+    ): Boolean {
+        if (blockIndex % 4 != 3) {
+            return expected.contentEquals(actual)
+        }
+        // trailer：很多设备无法读出密钥位，仅比较访问控制位 6..9。
+        for (i in 6..9) {
+            if (expected[i] != actual[i]) return false
+        }
+        return true
+    }
+
+    private fun isBlankLikeBlock(blockIndex: Int, block: ByteArray): Boolean {
+        if (block.all { it == 0.toByte() } || block.all { it == 0xFF.toByte() }) {
+            return true
+        }
+        if (blockIndex % 4 != 3) {
+            return false
+        }
+        // 常见空白 trailer: FFFFFFFFFFFF + FF078069 + FFFFFFFFFFFF
+        val keyAAllFF = (0..5).all { block[it] == 0xFF.toByte() }
+        val acDefault = block[6] == 0xFF.toByte() &&
+            block[7] == 0x07.toByte() &&
+            block[8] == 0x80.toByte() &&
+            block[9] == 0x69.toByte()
+        val keyBAllFF = (10..15).all { block[it] == 0xFF.toByte() }
+        return keyAAllFF && acDefault && keyBAllFF
+    }
+
+    private fun authenticateSectorWithRetry(
+        mifare: MifareClassic,
+        sectorIndex: Int,
+        keysA: List<ByteArray?>,
+        keysB: List<ByteArray?>
+    ): Boolean {
+        for (attempt in 0..RW_AUTH_RETRY_COUNT) {
+            try {
+                keysA.forEach { key ->
+                    if (key != null && mifare.authenticateSectorWithKeyA(sectorIndex, key)) {
+                        return true
+                    }
+                }
+                keysB.forEach { key ->
+                    if (key != null && mifare.authenticateSectorWithKeyB(sectorIndex, key)) {
+                        return true
+                    }
+                }
+            } catch (_: Exception) {
+                // Ignore and retry.
+            }
+        }
+        return false
+    }
+
+    private fun writeBlockWithRetry(
+        mifare: MifareClassic,
+        blockIndex: Int,
+        data: ByteArray
+    ): Boolean {
+        for (attempt in 0..RW_BLOCK_RETRY_COUNT) {
+            try {
+                mifare.writeBlock(blockIndex, data)
+                return true
+            } catch (_: Exception) {
+                // Ignore and retry.
+            }
+        }
+        return false
+    }
+
+    private fun readBlockWithRetry(
+        mifare: MifareClassic,
+        blockIndex: Int
+    ): ByteArray? {
+        for (attempt in 0..RW_BLOCK_RETRY_COUNT) {
+            try {
+                val raw = mifare.readBlock(blockIndex)
+                return when {
+                    raw.size == 16 -> raw
+                    raw.size > 16 -> raw.copyOf(16)
+                    else -> null
+                }
+            } catch (_: Exception) {
+                // Ignore and retry.
+            }
+        }
+        return null
     }
 
     private fun deriveWriteKeys(uid: ByteArray, info: ByteArray): List<ByteArray> {
