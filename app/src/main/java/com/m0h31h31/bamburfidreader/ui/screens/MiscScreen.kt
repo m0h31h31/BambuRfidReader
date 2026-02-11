@@ -111,7 +111,7 @@ fun MiscScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
             ) {
-                Text(text = "读取全部扇区数据")
+                Text(text = "读取全部扇区数据并保存文件")
                 Switch(
                     checked = readAllSectors,
                     onCheckedChange = ::handleReadAllSectorsChange
@@ -168,12 +168,12 @@ fun MiscScreen(
                     Text(text = stringResource(R.string.action_import_db))
                 }
             }
-            Button(
-                onClick = { message = onResetDatabase() },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(text = "重置数据库")
-            }
+//            Button(
+//                onClick = { message = onResetDatabase() },
+//                modifier = Modifier.fillMaxWidth()
+//            ) {
+//                Text(text = "重置数据库")
+//            }
 
             HorizontalDivider(
                 modifier = Modifier.fillMaxWidth(),

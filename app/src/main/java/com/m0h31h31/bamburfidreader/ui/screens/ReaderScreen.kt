@@ -5,9 +5,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.background
 import android.widget.Toast
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
@@ -16,7 +18,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,10 +33,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.border
 import com.m0h31h31.bamburfidreader.NfcUiState
 import com.m0h31h31.bamburfidreader.R
 import com.m0h31h31.bamburfidreader.LogCollector
@@ -258,13 +266,43 @@ fun ReaderScreen(
                                                 modifier = modifier.padding(3.dp)
                                     )
                                 }
-                                Row(
+                                Column(
                                     modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    TextButton(
-                                        onClick = {
-                                            if (trayUidAvailable && hasWeight) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        QuantityButtonGroup(
+                                            value = gramsText,
+                                            enabled = trayUidAvailable && hasWeight,
+                                            onValueChange = { text ->
+                                                val digits = text.filter { it.isDigit() }
+                                                if (trayUidAvailable && hasWeight) {
+                                                    val next = digits.toIntOrNull()
+                                                        ?.coerceIn(0, totalWeight) ?: 0
+                                                    gramsValue = next.toFloat()
+                                                    gramsText = next.toString()
+
+                                                    // 添加防抖机制，500毫秒内无输入变化时自动存储
+                                                    debounceJob.value?.cancel()
+                                                    debounceJob.value = scope.launch {
+                                                        delay(500)
+                                                        val finalGrams = gramsText.toIntOrNull()
+                                                            ?.coerceIn(0, totalWeight) ?: 0
+                                                        val finalPercent = if (totalWeight > 0) {
+                                                            ((finalGrams * 100f / totalWeight) * 10).roundToInt() / 10f
+                                                        } else {
+                                                            0f
+                                                        }
+                                                        onRemainingChange(state.trayUidHex, finalPercent, finalGrams)
+                                                    }
+                                                } else {
+                                                    gramsText = digits
+                                                }
+                                            },
+                                            onDecrease = {
                                                 val next = (gramsInt - 1).coerceAtLeast(0)
                                                 gramsValue = next.toFloat()
                                                 gramsText = next.toString()
@@ -273,55 +311,9 @@ fun ReaderScreen(
                                                     (next * 100f / totalWeight),
                                                     next
                                                 )
-                                            }
-                                        },
-                                        enabled = trayUidAvailable && hasWeight
-                                    ) {
-                                        Text(text = "-")
-                                    }
-                                    TextField(
-                                        value = gramsText,
-                                        onValueChange = { text ->
-                                            gramsText = text.filter { it.isDigit() }
-                                            if (trayUidAvailable && hasWeight) {
-                                                val next = gramsText.toIntOrNull()
-                                                    ?.coerceIn(0, totalWeight) ?: 0
-                                                gramsValue = next.toFloat()
-                                                
-                                                // 添加防抖机制，500毫秒内无输入变化时自动存储
-                                                debounceJob.value?.cancel()
-                                                debounceJob.value = scope.launch {
-                                                    delay(500)
-                                                    val finalGrams = gramsText.toIntOrNull()
-                                                        ?.coerceIn(0, totalWeight) ?: 0
-                                                    val finalPercent = if (totalWeight > 0) {
-                                                        ((finalGrams * 100f / totalWeight) * 10).roundToInt() / 10f
-                                                    } else {
-                                                        0f
-                                                    }
-                                                    onRemainingChange(state.trayUidHex, finalPercent, finalGrams)
-                                                }
-                                            }
-                                        },
-                                        singleLine = true,
-                                        enabled = trayUidAvailable && hasWeight,
-                                        modifier = Modifier
-                                            .weight(1f)
-                                    )
-                                    Text(
-                                        text = if (hasWeight) {
-                                            stringResource(R.string.unit_grams)
-                                        } else {
-                                            stringResource(R.string.message_weight_missing_short)
-                                        },
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    TextButton(
-                                        onClick = {
-                                            if (trayUidAvailable && hasWeight) {
-                                                val next = (gramsInt + 1)
-                                                    .coerceAtMost(totalWeight)
+                                            },
+                                            onIncrease = {
+                                                val next = (gramsInt + 1).coerceAtMost(totalWeight)
                                                 gramsValue = next.toFloat()
                                                 gramsText = next.toString()
                                                 onRemainingChange(
@@ -329,11 +321,9 @@ fun ReaderScreen(
                                                     (next * 100f / totalWeight),
                                                     next
                                                 )
-                                            }
-                                        },
-                                        enabled = trayUidAvailable && hasWeight
-                                    ) {
-                                        Text(text = "+")
+                                            },
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
                                     }
                                 }
                             }
@@ -441,6 +431,108 @@ fun ReaderScreen(
 //                    .align(Alignment.BottomCenter)
 //                    .padding(horizontal = 2.dp, vertical = 0.dp)
 //            )
+        }
+    }
+}
+
+@Composable
+private fun QuantityButtonGroup(
+    value: String,
+    enabled: Boolean,
+    onValueChange: (String) -> Unit,
+    onDecrease: () -> Unit,
+    onIncrease: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(10.dp)
+    val leftShape = RoundedCornerShape(topStart = 10.dp, bottomStart = 10.dp)
+    val rightShape = RoundedCornerShape(topEnd = 10.dp, bottomEnd = 10.dp)
+    val borderColor = MaterialTheme.colorScheme.outlineVariant
+    val leftBg = if (enabled) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceVariant
+    val rightBg = if (enabled) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+    val valueBg = MaterialTheme.colorScheme.surface
+
+    Row(
+        modifier = modifier
+            .height(44.dp)
+            .border(width = 1.dp, color = borderColor, shape = shape)
+            .background(color = MaterialTheme.colorScheme.surface, shape = shape)
+    ) {
+        Box(
+            modifier = Modifier
+                .weight(0.8f)
+                .fillMaxHeight()
+                .clip(leftShape)
+                .background(leftBg, shape = leftShape)
+                .clickable(enabled = enabled, onClick = onDecrease),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(text = "-", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        }
+        Box(
+            modifier = Modifier
+                .background(borderColor)
+                .size(width = 1.dp, height = 44.dp)
+        )
+        Box(
+            modifier = Modifier
+                .weight(2.1f)
+                .fillMaxHeight()
+                .background(valueBg),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(),
+            ) {
+                BasicTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    enabled = enabled,
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onSurface
+                    ),
+                    decorationBox = { innerTextField ->
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            innerTextField()
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight()
+                        .padding(start = 6.dp, end = 28.dp)
+                )
+                Text(
+                    text = "g",
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 8.dp)
+                )
+            }
+        }
+        Box(
+            modifier = Modifier
+                .background(borderColor)
+                .size(width = 1.dp, height = 44.dp)
+        )
+        Box(
+            modifier = Modifier
+                .weight(0.8f)
+                .fillMaxHeight()
+                .clip(rightShape)
+                .background(rightBg, shape = rightShape)
+                .clickable(enabled = enabled, onClick = onIncrease),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(text = "+", fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
     }
 }

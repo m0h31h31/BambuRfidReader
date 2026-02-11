@@ -34,6 +34,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.sp
 import com.m0h31h31.bamburfidreader.ui.components.ColorSwatch
@@ -190,7 +191,7 @@ fun TagScreen(
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            text = "耗材: ${item.materialType.ifBlank { "未知" }}",
+                                            text = item.materialType.ifBlank { "未知" },
                                             style = MaterialTheme.typography.bodyMedium
                                         )
                                         Text(
@@ -238,10 +239,42 @@ fun TagScreen(
                 modifier = Modifier.fillMaxWidth(),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.error)
             ) {
-                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("写入前请严格遵守：", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
-                    Text("1. 标签必须紧贴手机 NFC 区域，写入过程中不要移动", fontSize = 11.sp)
-                    Text("2. 写入完成按提示,移开标签,再贴上识别验证", fontSize = 11.sp)
+                Column(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        "写入前请严格遵守：",
+                        color = MaterialTheme.colorScheme.error,
+                        fontSize = 11.sp,
+                        lineHeight = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "1. 标签必须紧贴手机 NFC 区域，写入过程中不要移动",
+                        fontSize = 10.sp,
+                        lineHeight = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "2. 写入完成按提示,移开标签,再贴上识别验证",
+                        fontSize = 10.sp,
+                        lineHeight = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "3. 不要写入已有的标签,相同的标签会被识别为一卷料",
+                        fontSize = 10.sp,
+                        lineHeight = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "4. 写入可能失败!作者不对任何后果负责!!!",
+                        color = MaterialTheme.colorScheme.error,
+                        fontSize = 10.sp,
+                        lineHeight = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
 
@@ -282,14 +315,16 @@ fun TagScreen(
             }
 
             if (writeStatusMessage.isNotBlank()) {
+                val statusColor = when {
+                    writeStatusMessage.contains("成功") -> MaterialTheme.colorScheme.primary
+                    writeStatusMessage.contains("失败") -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                }
                 Text(
                     text = writeStatusMessage,
                     fontSize = 11.sp,
-                    color = if (writeStatusMessage.contains("成功")) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    }
+                    color = statusColor,
+                    fontWeight = FontWeight.Bold
                 )
             }
         }
