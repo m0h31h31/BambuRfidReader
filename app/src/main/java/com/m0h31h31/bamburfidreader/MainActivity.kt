@@ -6,17 +6,14 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import android.media.AudioManager
 import android.media.ToneGenerator
-import android.net.Uri
 import android.nfc.NfcAdapter
 import android.nfc.Tag
 import android.nfc.tech.MifareClassic
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
 import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.util.Log
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -66,7 +63,6 @@ private const val LOG_DIR_NAME = "logs"
 private const val LOG_FILE_NAME = "bambu_rfid.log"
 private const val SHARE_BUNDLE_ZIP_NAME = "rfid_data.zip"
 private const val SHARE_EXTRACT_MARKER_FILE = ".bundle_extracted"
-private const val SHARE_IMPORT_ZIP_MIME = "application/zip"
 private const val WRITE_KEY_LENGTH_BYTES = 6
 private const val WRITE_SECTOR_COUNT = 16
 private val WRITE_HKDF_SALT = byteArrayOf(
@@ -239,28 +235,11 @@ class MainActivity : ComponentActivity() {
     private var pendingWriteItem by mutableStateOf<ShareTagItem?>(null)
     private var pendingVerifyItem by mutableStateOf<ShareTagItem?>(null)
     private var shareLoading by mutableStateOf(false)
-    private var miscStatusMessage by mutableStateOf("")
     // 防止 readerCallback 并发触发导致 "Close other technology first!"。
     private val readingInProgress = AtomicBoolean(false)
     // 防止共享目录重复并发扫描。
     private val shareLoadingInProgress = AtomicBoolean(false)
     private var toneGenerator: ToneGenerator? = null
-    private val importTagPackageLauncher =
-        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-            if (uri == null) {
-                miscStatusMessage = "已取消选择标签包"
-                return@registerForActivityResult
-            }
-            lifecycleScope.launch(Dispatchers.IO) {
-                val message = importTagPackageFromZipUri(uri)
-                withContext(Dispatchers.Main) {
-                    miscStatusMessage = message
-                    if (message.contains("成功")) {
-                        refreshShareTagItemsAsync()
-                    }
-                }
-            }
-        }
 
     private val readerCallback = NfcAdapter.ReaderCallback { tag ->
         if (!readingInProgress.compareAndSet(false, true)) {
@@ -409,23 +388,6 @@ class MainActivity : ComponentActivity() {
                     onBackupDatabase = { backupDatabase() },
                     onImportDatabase = { importDatabase() },
                     onResetDatabase = { resetDatabase() },
-                    miscStatusMessage = miscStatusMessage,
-                    onExportTagPackage = {
-                        miscStatusMessage = "正在打包标签数据，请稍候..."
-                        lifecycleScope.launch(Dispatchers.IO) {
-                            val result = exportSelfTagPackageToDownloads()
-                            withContext(Dispatchers.Main) {
-                                miscStatusMessage = result
-                            }
-                        }
-                        "正在打包标签数据，请稍候..."
-                    },
-                    onSelectImportTagPackage = {
-                        openTagPackagePicker()
-                        val message = "请选择要导入的标签包(.zip)"
-                        miscStatusMessage = message
-                        message
-                    },
                     navigateToReader = shouldNavigateToReader,
                     shareTagItems = shareTagItems,
                     shareLoading = shareLoading,
@@ -667,107 +629,6 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             logDebug("数据库重置失败: ${e.message}")
             "数据库重置失败"
-        }
-    }
-
-    private fun openTagPackagePicker() {
-        importTagPackageLauncher.launch(
-            arrayOf(
-                SHARE_IMPORT_ZIP_MIME,
-                "application/x-zip-compressed",
-                "application/octet-stream",
-                "*/*"
-            )
-        )
-    }
-
-    private fun exportSelfTagPackageToDownloads(): String {
-        val externalDir = getExternalFilesDir(null) ?: return "无法访问应用存储目录"
-        val sourceDir = File(externalDir, "rfid_files/self_${getDeviceIdSuffix()}")
-        if (!sourceDir.exists() || !sourceDir.isDirectory) {
-            return "未找到标签数据目录: ${sourceDir.name}"
-        }
-        val files = sourceDir.walkTopDown().filter { it.isFile }.toList()
-        if (files.isEmpty()) {
-            return "标签数据目录为空，无法打包"
-        }
-
-        val zipName = "tag_package_${sourceDir.name}_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.zip"
-        return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val values = ContentValues().apply {
-                    put(android.provider.MediaStore.Downloads.DISPLAY_NAME, zipName)
-                    put(android.provider.MediaStore.Downloads.MIME_TYPE, SHARE_IMPORT_ZIP_MIME)
-                    put(android.provider.MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
-                }
-                val resolver = contentResolver
-                val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-                    ?: return "创建下载文件失败"
-                resolver.openOutputStream(uri)?.use { output ->
-                    ZipOutputStream(output.buffered()).use { zip ->
-                        files.forEach { file ->
-                            val relative = file.relativeTo(sourceDir).invariantSeparatorsPath
-                            val entry = ZipEntry("${sourceDir.name}/$relative")
-                            zip.putNextEntry(entry)
-                            file.inputStream().use { input -> input.copyTo(zip) }
-                            zip.closeEntry()
-                        }
-                    }
-                } ?: return "打开下载文件失败"
-            } else {
-                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                if (!downloadsDir.exists()) downloadsDir.mkdirs()
-                val outFile = File(downloadsDir, zipName)
-                outFile.outputStream().use { output ->
-                    ZipOutputStream(output.buffered()).use { zip ->
-                        files.forEach { file ->
-                            val relative = file.relativeTo(sourceDir).invariantSeparatorsPath
-                            val entry = ZipEntry("${sourceDir.name}/$relative")
-                            zip.putNextEntry(entry)
-                            file.inputStream().use { input -> input.copyTo(zip) }
-                            zip.closeEntry()
-                        }
-                    }
-                }
-            }
-            "标签数据打包成功: Download/$zipName"
-        } catch (e: Exception) {
-            logDebug("标签数据打包失败: ${e.message}")
-            "标签数据打包失败: ${e.message.orEmpty()}"
-        }
-    }
-
-    private fun importTagPackageFromZipUri(uri: Uri): String {
-        val externalDir = getExternalFilesDir(null) ?: return "无法访问应用存储目录"
-        val shareDir = File(externalDir, "rfid_files/share")
-        if (!shareDir.exists()) {
-            shareDir.mkdirs()
-        }
-
-        return try {
-            var extractedCount = 0
-            contentResolver.openInputStream(uri)?.use { input ->
-                ZipInputStream(input).use { zip ->
-                    var entry = zip.nextEntry
-                    while (entry != null) {
-                        unzipEntryToDir(zip, entry, shareDir)
-                        if (!entry.isDirectory && entry.name.lowercase(Locale.US).endsWith(".txt")) {
-                            extractedCount++
-                        }
-                        zip.closeEntry()
-                        entry = zip.nextEntry
-                    }
-                }
-            } ?: return "读取标签包失败"
-
-            if (extractedCount == 0) {
-                "导入完成，但压缩包内未发现 txt 标签数据"
-            } else {
-                "标签包导入成功: 共导入 $extractedCount 个标签文件"
-            }
-        } catch (e: Exception) {
-            logDebug("导入标签包失败: ${e.message}")
-            "导入标签包失败: ${e.message.orEmpty()}"
         }
     }
     
