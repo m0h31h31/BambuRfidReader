@@ -171,7 +171,7 @@ fun DataScreen(dbHelper: FilamentDbHelper?, modifier: Modifier = Modifier) {
         ) {
             Row(
                 modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(text = "分类")
@@ -183,7 +183,7 @@ fun DataScreen(dbHelper: FilamentDbHelper?, modifier: Modifier = Modifier) {
             }
             Row(
                 modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(text = "合并")
@@ -213,6 +213,8 @@ fun DataScreen(dbHelper: FilamentDbHelper?, modifier: Modifier = Modifier) {
                 Text(text = "暂无数据")
             }
         } else {
+            val swatchBlockSize = 60.dp
+            val swatchSpacing = 4.dp
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -246,17 +248,16 @@ fun DataScreen(dbHelper: FilamentDbHelper?, modifier: Modifier = Modifier) {
                             if (!mergeSameColorItems.value) {
                                 FlowRow(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(swatchSpacing),
+                                    verticalArrangement = Arrangement.spacedBy(swatchSpacing)
                                 ) {
                                     sortedItems.forEach { item ->
-                                        val blockSize = 60.dp
                                         Column(
-                                            modifier = Modifier.width(blockSize),
+                                            modifier = Modifier.width(swatchBlockSize),
                                             horizontalAlignment = Alignment.CenterHorizontally
                                         ) {
                                             Box(
-                                                modifier = Modifier.size(blockSize)
+                                                modifier = Modifier.size(swatchBlockSize)
                                             ) {
                                                 ColorSwatch(
                                                     colorValues = item.colorValues,
@@ -294,18 +295,17 @@ fun DataScreen(dbHelper: FilamentDbHelper?, modifier: Modifier = Modifier) {
                             } else {
                                 FlowRow(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(swatchSpacing),
+                                    verticalArrangement = Arrangement.spacedBy(swatchSpacing)
                                 ) {
                                     stackedGroups.forEach { stack ->
-                                        val blockSize = 60.dp
                                         Column(
-                                            modifier = Modifier.width(blockSize),
+                                            modifier = Modifier.width(swatchBlockSize),
                                             horizontalAlignment = Alignment.CenterHorizontally
                                         ) {
                                             Box(
                                                 modifier = Modifier
-                                                    .size(blockSize)
+                                                    .size(swatchBlockSize)
                                                     .clickable {
                                                         if (stack.count > 1) {
                                                             activeStackDialog.value = stack
