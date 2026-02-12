@@ -304,32 +304,32 @@ fun TagScreen(
                 )
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Button(
-                    onClick = {
-                        val item = selectedItem
-                        if (item != null) {
-                            onStartWrite(item)
-                        } else {
-                            hintMessage = "请先选择一条数据"
-                        }
-                    },
-                    enabled = !writeInProgress && selectedItem != null,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("开始写入")
-                }
-                TextButton(
-                    onClick = onCancelWrite,
-                    enabled = writeInProgress,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("取消写入")
-                }
-            }
+//            Row(
+//                modifier = Modifier.fillMaxWidth(),
+//                horizontalArrangement = Arrangement.spacedBy(8.dp)
+//            ) {
+//                Button(
+//                    onClick = {
+//                        val item = selectedItem
+//                        if (item != null) {
+//                            onStartWrite(item)
+//                        } else {
+//                            hintMessage = "请先选择一条数据"
+//                        }
+//                    },
+//                    enabled = !writeInProgress && selectedItem != null,
+//                    modifier = Modifier.weight(1f)
+//                ) {
+//                    Text("开始写入")
+//                }
+//                TextButton(
+//                    onClick = onCancelWrite,
+//                    enabled = writeInProgress,
+//                    modifier = Modifier.weight(1f)
+//                ) {
+//                    Text("取消写入")
+//                }
+//            }
 
             if (writeStatusMessage.isNotBlank()) {
                 val statusColor = when {
