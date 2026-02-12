@@ -210,6 +210,7 @@ data class InventoryItem(
 )
 
 data class ShareTagItem(
+    val relativePath: String,
     val fileName: String,
     val sourceUid: String,
     val trayUid: String,
@@ -492,6 +493,9 @@ class MainActivity : ComponentActivity() {
                     },
                     onStartWriteTag = { item ->
                         enqueueWriteTask(item)
+                    },
+                    onDeleteTagItem = { item ->
+                        deleteShareTagItem(item)
                     },
                     onCancelWriteTag = {
                         pendingWriteItem = null
@@ -1128,8 +1132,10 @@ class MainActivity : ComponentActivity() {
                 val rawBlocks = parseHexDumpFile(file) ?: return@forEach
                 // 共享文件批量扫描时关闭详细日志，避免大文件量下频繁日志影响性能。
                 val preview = NfcTagProcessor.parseForPreview(rawBlocks, filamentDbHelper) { }
+                val relativePath = file.relativeTo(shareDir).path.replace('\\', '/')
                 result.add(
                     ShareTagItem(
+                        relativePath = relativePath,
                         fileName = file.name,
                         sourceUid = file.nameWithoutExtension,
                         trayUid = preview.trayUidHex,
@@ -1146,6 +1152,35 @@ class MainActivity : ComponentActivity() {
             }
         }
         return result
+    }
+
+    private fun deleteShareTagItem(item: ShareTagItem): String {
+        return try {
+            val externalDir = getExternalFilesDir(null) ?: return "删除失败：无法访问应用存储目录"
+            val shareDir = File(externalDir, "rfid_files/share")
+            val relativePath = item.relativePath.ifBlank { item.fileName }
+            val targetFile = File(shareDir, relativePath)
+            val sharePath = shareDir.canonicalPath
+            val targetPath = targetFile.canonicalPath
+            if (!targetPath.startsWith("$sharePath${File.separator}")) {
+                return "删除失败：非法文件路径"
+            }
+            if (!targetFile.exists()) {
+                shareTagItems = shareTagItems.filterNot { it.relativePath == item.relativePath }
+                return "文件不存在，已从列表移除"
+            }
+            if (!targetFile.isFile) {
+                return "删除失败：目标不是文件"
+            }
+            if (!targetFile.delete()) {
+                return "删除失败：无法删除文件"
+            }
+            shareTagItems = shareTagItems.filterNot { it.relativePath == item.relativePath }
+            "删除成功：${item.fileName.removeSuffix(".txt")}"
+        } catch (e: Exception) {
+            logDebug("删除共享标签失败: ${e.message}")
+            "删除失败: ${e.message.orEmpty()}"
+        }
     }
 
     private fun refreshShareTagItemsAsync(): Boolean {

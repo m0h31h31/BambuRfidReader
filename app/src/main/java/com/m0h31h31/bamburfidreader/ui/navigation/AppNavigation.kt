@@ -83,6 +83,7 @@ fun AppNavigation(
     onTagScreenEnter: () -> Unit,
     onRefreshShareFiles: () -> String,
     onStartWriteTag: (ShareTagItem) -> Unit,
+    onDeleteTagItem: (ShareTagItem) -> String,
     onCancelWriteTag: () -> Unit
 ) {
     val navController = rememberNavController()
@@ -177,6 +178,7 @@ fun AppNavigation(
                     writeInProgress = writeInProgress,
                     onRefresh = onRefreshShareFiles,
                     onStartWrite = onStartWriteTag,
+                    onDelete = onDeleteTagItem,
                     onCancelWrite = onCancelWriteTag
                 )
             }

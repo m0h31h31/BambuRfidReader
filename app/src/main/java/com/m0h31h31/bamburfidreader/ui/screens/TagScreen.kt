@@ -2,6 +2,7 @@ package com.m0h31h31.bamburfidreader.ui.screens
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -28,13 +29,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.sp
@@ -88,17 +96,22 @@ fun TagScreen(
     writeInProgress: Boolean = false,
     onRefresh: () -> String = { "" },
     onStartWrite: (ShareTagItem) -> Unit = {},
+    onDelete: (ShareTagItem) -> String = { "" },
     onCancelWrite: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var query by remember { mutableStateOf("") }
     var selectedFileName by remember { mutableStateOf<String?>(null) }
     var hintMessage by remember { mutableStateOf("") }
+    var pendingDeleteItem by remember { mutableStateOf<ShareTagItem?>(null) }
 
     LaunchedEffect(preselectedFileName, items) {
         val target = preselectedFileName
-        if (!target.isNullOrBlank() && items.any { it.fileName == target }) {
-            selectedFileName = target
+        if (!target.isNullOrBlank()) {
+            val matched = items.firstOrNull { it.fileName == target }
+            if (matched != null) {
+                selectedFileName = matched.relativePath
+            }
         }
     }
 
@@ -118,7 +131,7 @@ fun TagScreen(
             }
         }
     }
-    val selectedItem = items.firstOrNull { it.fileName == selectedFileName }
+    val selectedItem = items.firstOrNull { it.relativePath == selectedFileName }
 
     Surface(
         modifier = modifier.fillMaxSize(),
@@ -187,49 +200,81 @@ fun TagScreen(
                             .padding(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(filteredItems, key = { it.fileName }) { item ->
-                            val selected = item.fileName == selectedFileName
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { selectedFileName = item.fileName },
-                                border = if (selected) {
-                                    BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
-                                } else {
-                                    BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                                }
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = item.materialType.ifBlank { "未知" },
-                                            style = MaterialTheme.typography.bodyMedium
-                                        )
-                                        Text(
-                                            text = "UID: ${uidDisplayName(item.fileName)}    颜色ID: ${item.colorUid.ifBlank { "未知" }}",
-                                            fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+                        items(filteredItems, key = { it.relativePath }) { item ->
+                            val selected = item.relativePath == selectedFileName
+                            val dismissState = rememberSwipeToDismissBoxState(
+                                confirmValueChange = { value ->
+                                    if (value == SwipeToDismissBoxValue.EndToStart) {
+                                        pendingDeleteItem = item
+                                        false
+                                    } else {
+                                        false
                                     }
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalAlignment = Alignment.CenterVertically
+                                }
+                            )
+                            SwipeToDismissBox(
+                                state = dismissState,
+                                backgroundContent = {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(vertical = 6.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(Color(0xFFE54D4D))
+                                            .padding(horizontal = 16.dp),
+                                        contentAlignment = Alignment.CenterEnd
                                     ) {
                                         Text(
-                                            text = item.colorName.ifBlank { "未知颜色" },
-                                            fontSize = 12.sp
+                                            text = "删除",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = Color.White,
+                                            fontWeight = FontWeight.SemiBold
                                         )
-                                        ColorSwatch(
-                                            colorValues = item.colorValues,
-                                            colorType = item.colorType,
-                                            modifier = Modifier.width(42.dp).height(28.dp)
-                                        )
+                                    }
+                                }
+                            ) {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { selectedFileName = item.relativePath },
+                                    border = if (selected) {
+                                        BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+                                    } else {
+                                        BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                                    }
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = item.materialType.ifBlank { "未知" },
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
+                                            Text(
+                                                text = "UID: ${uidDisplayName(item.fileName)}    颜色ID: ${item.colorUid.ifBlank { "未知" }}",
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = item.colorName.ifBlank { "未知颜色" },
+                                                fontSize = 12.sp
+                                            )
+                                            ColorSwatch(
+                                                colorValues = item.colorValues,
+                                                colorType = item.colorType,
+                                                modifier = Modifier.width(42.dp).height(28.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -311,32 +356,61 @@ fun TagScreen(
                 )
             }
 
-//            Row(
-//                modifier = Modifier.fillMaxWidth(),
-//                horizontalArrangement = Arrangement.spacedBy(8.dp)
-//            ) {
-//                Button(
-//                    onClick = {
-//                        val item = selectedItem
-//                        if (item != null) {
-//                            onStartWrite(item)
-//                        } else {
-//                            hintMessage = "请先选择一条数据"
-//                        }
-//                    },
-//                    enabled = !writeInProgress && selectedItem != null,
-//                    modifier = Modifier.weight(1f)
-//                ) {
-//                    Text("开始写入")
-//                }
-//                TextButton(
-//                    onClick = onCancelWrite,
-//                    enabled = writeInProgress,
-//                    modifier = Modifier.weight(1f)
-//                ) {
-//                    Text("取消写入")
-//                }
-//            }
+            val deleteTarget = pendingDeleteItem
+            if (deleteTarget != null) {
+                AlertDialog(
+                    onDismissRequest = { pendingDeleteItem = null },
+                    title = { Text("确认删除") },
+                    text = { Text("确定删除标签 ${uidDisplayName(deleteTarget.fileName)} 吗？") },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                val message = onDelete(deleteTarget)
+                                hintMessage = message
+                                val deleted = message.startsWith("删除成功") || message.contains("已从列表移除")
+                                if (deleted && selectedFileName == deleteTarget.relativePath) {
+                                    selectedFileName = null
+                                }
+                                pendingDeleteItem = null
+                            }
+                        ) {
+                            Text("删除")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { pendingDeleteItem = null }) {
+                            Text("取消")
+                        }
+                    }
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = {
+                        val item = selectedItem
+                        if (item != null) {
+                            onStartWrite(item)
+                        } else {
+                            hintMessage = "请先选择一条数据"
+                        }
+                    },
+                    enabled = !writeInProgress && selectedItem != null,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("开始写入")
+                }
+                TextButton(
+                    onClick = onCancelWrite,
+                    enabled = writeInProgress,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("取消写入")
+                }
+            }
 
             if (writeStatusMessage.isNotBlank()) {
                 val statusColor = when {
