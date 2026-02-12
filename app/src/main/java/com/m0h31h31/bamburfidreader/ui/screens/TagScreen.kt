@@ -292,6 +292,13 @@ fun TagScreen(
                         lineHeight = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
+                    Text(
+                        "5. 写入功能将在数据收集一段时间后开放,请大家积极共享",
+                        color = MaterialTheme.colorScheme.error,
+                        fontSize = 10.sp,
+                        lineHeight = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
 

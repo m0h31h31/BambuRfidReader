@@ -41,6 +41,8 @@ fun MiscScreen(
     onReadAllSectorsChange: (Boolean) -> Unit = {},
     saveKeysToFile: Boolean = false,
     onSaveKeysToFileChange: (Boolean) -> Unit = {},
+    forceOverwriteImport: Boolean = false,
+    onForceOverwriteImportChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uriHandler = LocalUriHandler.current
@@ -129,6 +131,18 @@ fun MiscScreen(
                 Switch(
                     checked = saveKeysToFile,
                     onCheckedChange = onSaveKeysToFileChange
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                Text(text = "强制覆盖导入")
+                Switch(
+                    checked = forceOverwriteImport,
+                    onCheckedChange = onForceOverwriteImportChange
                 )
             }
             

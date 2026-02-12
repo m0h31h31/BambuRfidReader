@@ -54,11 +54,13 @@ fun AppNavigation(
     voiceEnabled: Boolean,
     readAllSectors: Boolean,
     saveKeysToFile: Boolean,
+    forceOverwriteImport: Boolean,
     ttsReady: Boolean,
     ttsLanguageReady: Boolean,
     onVoiceEnabledChange: (Boolean) -> Unit,
     onReadAllSectorsChange: (Boolean) -> Unit,
     onSaveKeysToFileChange: (Boolean) -> Unit,
+    onForceOverwriteImportChange: (Boolean) -> Unit,
     onTrayOutbound: (String) -> Unit,
     onRemainingChange: (String, Float, Int?) -> Unit,
     dbHelper: FilamentDbHelper?,
@@ -192,7 +194,9 @@ fun AppNavigation(
                                 readAllSectors = readAllSectors,
                                 onReadAllSectorsChange = onReadAllSectorsChange,
                                 saveKeysToFile = saveKeysToFile,
-                                onSaveKeysToFileChange = onSaveKeysToFileChange
+                                onSaveKeysToFileChange = onSaveKeysToFileChange,
+                                forceOverwriteImport = forceOverwriteImport,
+                                onForceOverwriteImportChange = onForceOverwriteImportChange
                             )
                         }
         }

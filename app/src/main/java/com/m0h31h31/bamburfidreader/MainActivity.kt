@@ -252,6 +252,7 @@ class MainActivity : ComponentActivity() {
     private var voiceEnabled by mutableStateOf(false)
     private var readAllSectors by mutableStateOf(false) // 控制是否读取全部扇区，默认关闭
     private var saveKeysToFile by mutableStateOf(false) // 控制是否额外导出秘钥文件
+    private var forceOverwriteImport by mutableStateOf(false) // 控制导入标签包时是否覆盖同UID文件
     private var tts: TextToSpeech? = null
     private var ttsReady by mutableStateOf(false)
     private var ttsLanguageReady by mutableStateOf(false)
@@ -419,6 +420,7 @@ class MainActivity : ComponentActivity() {
                     voiceEnabled = voiceEnabled,
                     readAllSectors = readAllSectors,
                     saveKeysToFile = saveKeysToFile,
+                    forceOverwriteImport = forceOverwriteImport,
                     ttsReady = ttsReady,
                     ttsLanguageReady = ttsLanguageReady,
                     onVoiceEnabledChange = {
@@ -434,6 +436,9 @@ class MainActivity : ComponentActivity() {
                     },
                     onSaveKeysToFileChange = {
                         saveKeysToFile = it
+                    },
+                    onForceOverwriteImportChange = {
+                        forceOverwriteImport = it
                     },
                     onTrayOutbound = { trayUid ->
                         removeTrayFromInventory(trayUid)
@@ -849,13 +854,56 @@ class MainActivity : ComponentActivity() {
         }
         return try {
             var extractedCount = 0
+            var skippedCount = 0
+            var overwrittenCount = 0
+            val existingTxtFiles = shareDir
+                .walkTopDown()
+                .filter { it.isFile && it.extension.equals("txt", ignoreCase = true) }
+                .toList()
+            val existingUidSet = existingTxtFiles
+                .map { it.nameWithoutExtension.uppercase(Locale.US) }
+                .toMutableSet()
+            val uidFilesByUid = mutableMapOf<String, MutableList<File>>()
+            existingTxtFiles.forEach { file ->
+                val uid = file.nameWithoutExtension.uppercase(Locale.US)
+                if (uid.isNotBlank()) {
+                    uidFilesByUid.getOrPut(uid) { mutableListOf() }.add(file)
+                }
+            }
             contentResolver.openInputStream(uri)?.use { input ->
                 ZipInputStream(input).use { zip ->
                     var entry = zip.nextEntry
                     while (entry != null) {
-                        unzipEntryToDir(zip, entry, shareDir)
                         if (!entry.isDirectory && entry.name.lowercase(Locale.US).endsWith(".txt")) {
+                            val incomingUid = File(entry.name).nameWithoutExtension.uppercase(Locale.US)
+                            val alreadyExists = incomingUid.isNotBlank() && existingUidSet.contains(incomingUid)
+                            if (alreadyExists && !forceOverwriteImport) {
+                                skippedCount++
+                                zip.closeEntry()
+                                entry = zip.nextEntry
+                                continue
+                            }
+                            if (alreadyExists && forceOverwriteImport && incomingUid.isNotBlank()) {
+                                // 强制覆盖：先删除 share 下任意子目录中同 UID 的旧文件，避免跨目录重复。
+                                uidFilesByUid[incomingUid].orEmpty().forEach { oldFile ->
+                                    if (oldFile.exists() && !oldFile.delete()) {
+                                        logDebug("删除旧标签文件失败: ${oldFile.absolutePath}")
+                                    }
+                                }
+                                uidFilesByUid[incomingUid] = mutableListOf()
+                            }
+                            unzipEntryToDir(zip, entry, shareDir)
                             extractedCount++
+                            if (alreadyExists && forceOverwriteImport) {
+                                overwrittenCount++
+                            }
+                            if (incomingUid.isNotBlank()) {
+                                existingUidSet.add(incomingUid)
+                                uidFilesByUid.getOrPut(incomingUid) { mutableListOf() }
+                                    .add(File(shareDir, entry.name))
+                            }
+                        } else {
+                            unzipEntryToDir(zip, entry, shareDir)
                         }
                         zip.closeEntry()
                         entry = zip.nextEntry
@@ -863,10 +911,16 @@ class MainActivity : ComponentActivity() {
                 }
             } ?: return "读取标签包失败"
 
-            if (extractedCount == 0) {
+            if (extractedCount == 0 && skippedCount == 0) {
                 "导入完成，但压缩包内未发现 txt 标签数据"
+            } else if (extractedCount == 0 && skippedCount > 0) {
+                "导入完成：全部为重复UID文件，已跳过 $skippedCount 个"
             } else {
-                "标签包导入成功: 共导入 $extractedCount 个标签文件"
+                if (forceOverwriteImport) {
+                    "标签包导入完成: 导入 $extractedCount 个（覆盖 $overwrittenCount 个），跳过重复UID $skippedCount 个"
+                } else {
+                    "标签包导入完成: 导入 $extractedCount 个，跳过重复UID $skippedCount 个"
+                }
             }
         } catch (e: Exception) {
             logDebug("导入标签包失败: ${e.message}")
