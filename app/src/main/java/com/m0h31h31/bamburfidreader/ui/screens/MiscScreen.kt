@@ -139,7 +139,7 @@ fun MiscScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
             ) {
-                Text(text = "强制覆盖导入")
+                Text(text = "强制覆盖导入标签")
                 Switch(
                     checked = forceOverwriteImport,
                     onCheckedChange = onForceOverwriteImportChange
@@ -153,7 +153,7 @@ fun MiscScreen(
                     title = { Text(text = "读取全部数据提醒") },
                     text = {
                         Text(
-                            text = "读取全部数据会影响读取速度，数据会保存在包名下的 rfid_file 文件夹下。确定要开启吗？"
+                            text = "读取全部数据会影响读取速度，数据会保存在包名(Android/data/com.m0h31h31.bamburfidreader/)下的 rfid_file/self_xxxxx 文件夹下。确定要开启吗？"
                         )
                     },
                     confirmButton = {
