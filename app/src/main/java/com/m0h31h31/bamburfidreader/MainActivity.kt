@@ -937,15 +937,12 @@ class MainActivity : ComponentActivity() {
      */
     private fun saveAllSectorsData(uidHex: String, rawBlocks: List<ByteArray?>, sectorKeys: List<Pair<ByteArray?, ByteArray?>>) {
         try {
-            val externalDir = getExternalFilesDir(null)
-            if (externalDir == null) {
-                logDebug("无法访问存储目录")
+            val rfidFilesDir = resolveSelfRfidDirectory()
+            if (rfidFilesDir == null) {
+                val message = "保存扇区数据失败：无法创建 self 目录"
+                logDebug(message)
+                LogCollector.append(this, "E", message)
                 return
-            }
-            val deviceIdSuffix = getDeviceIdSuffix()
-            val rfidFilesDir = File(externalDir, "rfid_files/self_$deviceIdSuffix")
-            if (!rfidFilesDir.exists()) {
-                rfidFilesDir.mkdirs()
             }
 
             val outputFile = File(rfidFilesDir, "${uidHex}.txt")
@@ -979,8 +976,52 @@ class MainActivity : ComponentActivity() {
             logDebug("全部扇区数据已保存到: ${outputFile.absolutePath}")
             LogCollector.append(this, "I", "全部扇区数据已保存到: ${outputFile.absolutePath}")
         } catch (e: Exception) {
-            logDebug("保存扇区数据失败: ${e.message}")
+            logDebug("保存扇区数据失败: ${e.message}\n${Log.getStackTraceString(e)}")
             LogCollector.append(this, "E", "保存扇区数据失败: ${e.message}")
+        }
+    }
+
+    private fun resolveSelfRfidDirectory(): File? {
+        val deviceIdSuffix = getDeviceIdSuffix()
+        val relativePath = "rfid_files/self_$deviceIdSuffix"
+        val externalDir = getExternalFilesDir(null)
+        val candidates = buildList {
+            if (externalDir != null) add(File(externalDir, relativePath))
+            add(File(filesDir, relativePath))
+        }
+        candidates.forEach { dir ->
+            logDebug("尝试创建 self 目录: ${dir.absolutePath}")
+            if (ensureDirectoryWritable(dir)) {
+                logDebug("self 目录可用: ${dir.absolutePath}")
+                return dir
+            }
+            logDebug("self 目录不可用: ${dir.absolutePath}")
+        }
+        return null
+    }
+
+    private fun ensureDirectoryWritable(dir: File): Boolean {
+        return try {
+            if (dir.exists()) {
+                if (!dir.isDirectory) {
+                    logDebug("路径存在但不是目录: ${dir.absolutePath}")
+                    return false
+                }
+            } else {
+                val created = dir.mkdirs()
+                if (!created && !dir.exists()) {
+                    logDebug("创建目录失败: ${dir.absolutePath}")
+                    return false
+                }
+            }
+            if (!dir.canWrite()) {
+                logDebug("目录不可写: ${dir.absolutePath}")
+                return false
+            }
+            true
+        } catch (e: Exception) {
+            logDebug("目录检查失败: ${dir.absolutePath}, err=${e.message}")
+            false
         }
     }
 
