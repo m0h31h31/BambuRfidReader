@@ -254,6 +254,7 @@ class MainActivity : ComponentActivity() {
     private var readAllSectors by mutableStateOf(false) // 控制是否读取全部扇区，默认关闭
     private var saveKeysToFile by mutableStateOf(false) // 控制是否额外导出秘钥文件
     private var forceOverwriteImport by mutableStateOf(false) // 控制导入标签包时是否覆盖同UID文件
+    private var formatTagDebugEnabled by mutableStateOf(false) // 控制格式化标签调试弹窗
     private var tts: TextToSpeech? = null
     private var ttsReady by mutableStateOf(false)
     private var ttsLanguageReady by mutableStateOf(false)
@@ -267,10 +268,14 @@ class MainActivity : ComponentActivity() {
     private var writeStatusMessage by mutableStateOf("")
     private var pendingWriteItem by mutableStateOf<ShareTagItem?>(null)
     private var pendingVerifyItem by mutableStateOf<ShareTagItem?>(null)
+    private var pendingClearFuid by mutableStateOf(false)
     private var shareLoading by mutableStateOf(false)
     private var shareRefreshStatusMessage by mutableStateOf("")
     private var shareRefreshStatusClearJob: Job? = null
     private var miscStatusMessage by mutableStateOf("")
+    private var debugInfoDialog: android.app.AlertDialog? = null
+    private val debugInfoBuffer = StringBuilder()
+    private val debugInfoLock = Any()
     // 防止 readerCallback 并发触发导致 "Close other technology first!"。
     private val readingInProgress = AtomicBoolean(false)
     // 防止共享目录重复并发扫描。
@@ -293,6 +298,56 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+    private fun resetDebugInfoDialog(title: String = "调试信息") {
+        synchronized(debugInfoLock) {
+            debugInfoBuffer.clear()
+        }
+        if (!formatTagDebugEnabled) {
+            runOnUiThread {
+                try {
+                    debugInfoDialog?.dismiss()
+                } catch (_: Exception) {
+                }
+                debugInfoDialog = null
+            }
+            return
+        }
+        runOnUiThread {
+            try {
+                debugInfoDialog?.dismiss()
+            } catch (_: Exception) {
+            }
+            debugInfoDialog = android.app.AlertDialog.Builder(this)
+                .setTitle(title)
+                .setMessage("")
+                .setPositiveButton("关闭", null)
+                .create().also { it.show() }
+        }
+    }
+
+    private fun appendDebugInfoDialog(message: String) {
+        if (!formatTagDebugEnabled) return
+        val text = synchronized(debugInfoLock) {
+            if (debugInfoBuffer.isNotEmpty()) {
+                debugInfoBuffer.insert(0, '\n')
+            }
+            debugInfoBuffer.insert(0, message)
+            debugInfoBuffer.toString()
+        }
+        runOnUiThread {
+            val dialog = debugInfoDialog
+            if (dialog == null || !dialog.isShowing) {
+                debugInfoDialog = android.app.AlertDialog.Builder(this)
+                    .setTitle("调试信息")
+                    .setMessage(text)
+                    .setPositiveButton("关闭", null)
+                    .create().also { it.show() }
+            } else {
+                dialog.setMessage(text)
+            }
+        }
+    }
+
     private val readerCallback = NfcAdapter.ReaderCallback { tag ->
         if (!readingInProgress.compareAndSet(false, true)) {
             logEvent("读卡请求被忽略：上一次读卡尚未完成")
@@ -305,6 +360,8 @@ class MainActivity : ComponentActivity() {
                     writeStatusMessage = "正在写入，请保持标签稳定贴合，切勿移动..."
                 } else if (pendingVerifyItem != null) {
                     writeStatusMessage = "正在校验，请保持标签稳定贴合，切勿移动..."
+                } else if (pendingClearFuid) {
+                    miscStatusMessage = "正在格式化标签，请保持标签稳定贴合，切勿移动..."
                 }
             }
             if (pendingWriteItem != null) {
@@ -340,6 +397,17 @@ class MainActivity : ComponentActivity() {
                     } else {
                         playFeedbackTone(FeedbackTone.FAILURE)
                     }
+                }
+            } else if (pendingClearFuid) {
+                val result = clearFuidAndResetTag(tag)
+                runOnUiThread {
+                    miscStatusMessage = result
+                    if (result.contains("成功")) {
+                        playFeedbackTone(FeedbackTone.SUCCESS)
+                    } else {
+                        playFeedbackTone(FeedbackTone.FAILURE)
+                    }
+                    pendingClearFuid = false
                 }
             } else {
                 val result = readTag(tag)
@@ -421,6 +489,7 @@ class MainActivity : ComponentActivity() {
                     voiceEnabled = voiceEnabled,
                     readAllSectors = readAllSectors,
                     saveKeysToFile = saveKeysToFile,
+                    formatTagDebugEnabled = formatTagDebugEnabled,
                     forceOverwriteImport = forceOverwriteImport,
                     ttsReady = ttsReady,
                     ttsLanguageReady = ttsLanguageReady,
@@ -438,6 +507,16 @@ class MainActivity : ComponentActivity() {
                     onSaveKeysToFileChange = {
                         saveKeysToFile = it
                     },
+                    onFormatTagDebugEnabledChange = {
+                        formatTagDebugEnabled = it
+                        if (!it) {
+                            try {
+                                debugInfoDialog?.dismiss()
+                            } catch (_: Exception) {
+                            }
+                            debugInfoDialog = null
+                        }
+                    },
                     onForceOverwriteImportChange = {
                         forceOverwriteImport = it
                     },
@@ -453,6 +532,7 @@ class MainActivity : ComponentActivity() {
                     dbHelper = filamentDbHelper,
                     onBackupDatabase = { backupDatabase() },
                     onImportDatabase = { importDatabase() },
+                    onClearFuid = { enqueueClearFuidTask() },
                     onResetDatabase = { resetDatabase() },
                     miscStatusMessage = miscStatusMessage,
                     onExportTagPackage = {
@@ -981,6 +1061,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun enqueueClearFuidTask(): String {
+        if (pendingWriteItem != null || pendingVerifyItem != null) {
+            return "请先完成或取消当前写入/校验任务"
+        }
+        resetDebugInfoDialog("格式化标签调试")
+        appendDebugInfoDialog("已进入等待贴卡状态")
+        pendingClearFuid = true
+        miscStatusMessage = "格式化标签准备就绪：请将目标标签紧贴 NFC 区域，保持静止直到完成。"
+        return miscStatusMessage
+    }
+
     private fun resolveSelfRfidDirectory(): File? {
         val deviceIdSuffix = getDeviceIdSuffix()
         val relativePath = "rfid_files/self_$deviceIdSuffix"
@@ -1410,6 +1501,253 @@ class MainActivity : ComponentActivity() {
             "写入成功：已完成全部区块写入"
         } catch (e: Exception) {
             "写入失败：${e.message.orEmpty()}"
+        } finally {
+            try {
+                mifare.close()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun clearFuidAndResetTag(tag: Tag): String {
+        val mifare = MifareClassic.get(tag) ?: return "格式化失败：标签不支持 MIFARE Classic"
+        val uid = tag.id ?: return "格式化失败：无法读取UID"
+        if (uid.isEmpty()) return "格式化失败：UID为空"
+
+        val derivedKeysA = try {
+            deriveWriteKeys(uid, WRITE_INFO_A)
+        } catch (e: Exception) {
+            return "格式化失败：派生KeyA失败 ${e.message.orEmpty()}"
+        }
+        val derivedKeysB = try {
+            deriveWriteKeys(uid, WRITE_INFO_B)
+        } catch (e: Exception) {
+            return "格式化失败：派生KeyB失败 ${e.message.orEmpty()}"
+        }
+        if (derivedKeysA.size < WRITE_SECTOR_COUNT || derivedKeysB.size < WRITE_SECTOR_COUNT) {
+            return "格式化失败：派生秘钥数量不足"
+        }
+
+        val ffKey = ByteArray(6) { 0xFF.toByte() }
+        val zeroBlock = ByteArray(16) { 0x00.toByte() }
+        val accessDefault = hexToBytes("FF078069")
+
+        fun logStep(message: String) {
+            logDebug("格式化标签: $message")
+            LogCollector.append(this, "I", "格式化标签: $message")
+            appendDebugInfoDialog(message)
+        }
+
+        fun fail(message: String): String {
+            logStep(message)
+            return message
+        }
+
+        fun buildTrailer(keyA: ByteArray, access: ByteArray, keyB: ByteArray): ByteArray {
+            return ByteArray(16).apply {
+                System.arraycopy(keyA, 0, this, 0, 6)
+                System.arraycopy(access, 0, this, 6, 4)
+                System.arraycopy(keyB, 0, this, 10, 6)
+            }
+        }
+
+        fun resetTrailerByDerivedKeyBStages(sector: Int): Boolean {
+            val trailerBlock = mifare.sectorToBlock(sector) + 3
+            val derivedA = derivedKeysA[sector]
+            val derivedB = derivedKeysB[sector]
+            logStep("扇区$sector.trailer: 使用派生KeyB认证")
+            val authByDerivedB = authenticateSectorWithRetry(
+                mifare = mifare,
+                sectorIndex = sector,
+                keysA = emptyList(),
+                keysB = listOf(derivedB)
+            )
+            if (!authByDerivedB) {
+                logStep("扇区$sector.trailer: 派生KeyB认证失败")
+                return false
+            }
+            logStep("扇区$sector.trailer: 派生KeyB认证成功")
+
+            // 按用户要求：直接使用派生 KeyB 授权，一次性写入完整默认 trailer
+            if (!writeBlockWithRetry(mifare, trailerBlock, buildTrailer(ffKey, accessDefault, ffKey))) {
+                logStep("扇区$sector.trailer: 写入完整默认trailer失败")
+                return false
+            }
+            logStep("扇区$sector.trailer: 写入完整默认trailer成功")
+
+            // 优先以 FF 认证作为成功判据；若失败，则允许派生秘钥继续认证（兼容“只改了权限位”的卡）
+            val ffAuthOk = authenticateSectorWithRetry(
+                mifare = mifare,
+                sectorIndex = sector,
+                keysA = listOf(ffKey),
+                keysB = listOf(ffKey)
+            )
+            logStep("扇区$sector.trailer: FF认证${if (ffAuthOk) "成功" else "失败"}")
+            if (ffAuthOk) return true
+
+            val derivedAuthStillOk = authenticateSectorWithRetry(
+                mifare = mifare,
+                sectorIndex = sector,
+                keysA = listOf(derivedA),
+                keysB = listOf(derivedB)
+            )
+            logStep(
+                "扇区$sector.trailer: FF失败后派生秘钥复验${if (derivedAuthStillOk) "成功（继续后续清零）" else "失败"}"
+            )
+            return derivedAuthStillOk
+        }
+
+        return try {
+            mifare.connect()
+            logStep("开始处理 UID=${uid.toHex().uppercase(Locale.US)}")
+
+            if (mifare.sectorCount < WRITE_SECTOR_COUNT) {
+                return fail("格式化失败：标签扇区数量不足 ${mifare.sectorCount}")
+            }
+
+            val originalBlock0 = run {
+                val authByDerived = authenticateSectorWithRetry(
+                    mifare = mifare,
+                    sectorIndex = 0,
+                    keysA = listOf(derivedKeysA[0]),
+                    keysB = listOf(derivedKeysB[0])
+                )
+                val authOk = if (authByDerived) {
+                    true
+                } else {
+                    val authByFf = authenticateSectorWithRetry(
+                        mifare = mifare,
+                        sectorIndex = 0,
+                        keysA = listOf(ffKey),
+                        keysB = listOf(ffKey)
+                    )
+                    if (authByFf) {
+                        logStep("扇区0派生秘钥认证失败，FF认证成功（该扇区可能已重置）")
+                    }
+                    authByFf
+                }
+                if (!authOk) {
+                    return fail("格式化失败：扇区0 使用派生秘钥/FF秘钥认证失败，无法读取块0")
+                }
+                readBlockWithRetry(mifare, 0) ?: return fail("格式化失败：读取块0失败")
+            }
+            logStep("块0读取成功（用于最终校验）")
+
+            fun runStep3VerifyByFf(): String? {
+                for (sector in 0 until WRITE_SECTOR_COUNT) {
+                    logStep("步骤3/3 扇区$sector: 使用FF秘钥校验")
+                    val authOk = authenticateSectorWithRetry(
+                        mifare = mifare,
+                        sectorIndex = sector,
+                        keysA = listOf(ffKey),
+                        keysB = listOf(ffKey)
+                    )
+                    if (!authOk) {
+                        return "校验失败：扇区 $sector 使用FF秘钥认证失败"
+                    }
+                    val startBlock = mifare.sectorToBlock(sector)
+                    for (offset in 0 until 4) {
+                        val blockIndex = startBlock + offset
+                        val actual = readBlockWithRetry(mifare, blockIndex)
+                            ?: return "校验失败：区块 $blockIndex 读取失败"
+                        if (blockIndex == 0) {
+                            if (!actual.contentEquals(originalBlock0)) {
+                                return "校验失败：区块0被修改"
+                            }
+                        } else if (blockIndex % 4 == 3) {
+                            // trailer 不参与“清零校验”，本步骤只要求 FF 可认证即可。
+                            continue
+                        } else if (!actual.all { it == 0.toByte() }) {
+                            return "校验失败：区块 $blockIndex 不是全00"
+                        }
+                    }
+                    logStep("扇区$sector: 校验通过")
+                }
+                return null
+            }
+
+            val maxStep3RetryCount = 2
+            for (attempt in 0..maxStep3RetryCount) {
+                if (attempt > 0) {
+                    logStep("步骤3FF校验失败后重试：第${attempt}次重试（最多${maxStep3RetryCount}次）")
+                }
+
+                // 第一步：使用派生秘钥将所有 trailer 重置为默认 FF trailer（优先KeyB，兼容用KeyA）
+                for (sector in 0 until WRITE_SECTOR_COUNT) {
+                    logStep("步骤1/3 扇区$sector: 开始重置 trailer")
+                    val authByDerived = authenticateSectorWithRetry(
+                        mifare = mifare,
+                        sectorIndex = sector,
+                        keysA = listOf(derivedKeysA[sector]),
+                        keysB = listOf(derivedKeysB[sector])
+                    )
+                    if (!authByDerived) {
+                        logStep("扇区$sector: 派生秘钥认证失败，尝试 FF 认证")
+                        val authByFf = authenticateSectorWithRetry(
+                            mifare = mifare,
+                            sectorIndex = sector,
+                            keysA = listOf(ffKey),
+                            keysB = listOf(ffKey)
+                        )
+                        if (authByFf) {
+                            logStep("扇区 $sector 派生秘钥认证失败，FF认证成功，判定已重置")
+                            continue
+                        }
+                        return fail("格式化失败：扇区 $sector 使用派生秘钥/FF秘钥认证失败")
+                    }
+                    logStep("扇区$sector: 派生秘钥认证成功，写入默认 trailer")
+                    if (!resetTrailerByDerivedKeyBStages(sector)) {
+                        return fail("格式化失败：扇区 $sector trailer 重置失败")
+                    }
+                    logStep("扇区$sector: trailer 重置成功（FF认证通过）")
+                }
+                logStep("已重置全部 trailer（以FF或派生秘钥可继续认证为准）")
+
+                // 第二步：使用 FF/派生秘钥，将数据区块清零（不清 block0，不清 trailer）
+                for (sector in 0 until WRITE_SECTOR_COUNT) {
+                    logStep("步骤2/3 扇区$sector: 使用FF认证并清零区块")
+                    val authOk = authenticateSectorWithRetry(
+                        mifare = mifare,
+                        sectorIndex = sector,
+                        keysA = listOf(ffKey, derivedKeysA[sector]),
+                        keysB = listOf(ffKey, derivedKeysB[sector])
+                    )
+                    if (!authOk) {
+                        return fail("格式化失败：扇区 $sector 使用FF/派生秘钥认证失败")
+                    }
+                    val startBlock = mifare.sectorToBlock(sector)
+                    for (offset in 0 until 4) {
+                        val blockIndex = startBlock + offset
+                        if (blockIndex == 0 || blockIndex % 4 == 3) {
+                            continue
+                        }
+                        if (!writeBlockWithRetry(mifare, blockIndex, zeroBlock)) {
+                            return fail("格式化失败：区块 $blockIndex 写零失败")
+                        }
+                    }
+                    logStep("扇区$sector: 区块清零完成")
+                }
+                logStep("已完成数据区块清零（跳过 block0 和 trailer）")
+
+                val verifyError = runStep3VerifyByFf()
+                if (verifyError == null) {
+                    logStep("校验通过")
+                    return "格式化标签成功：已重置并校验通过"
+                }
+
+                if (attempt < maxStep3RetryCount) {
+                    logStep("$verifyError，准备从头重试（${attempt + 1}/$maxStep3RetryCount）")
+                    continue
+                }
+                return fail(verifyError)
+            }
+
+            fail("格式化失败：步骤3重试结束仍未通过")
+        } catch (e: Exception) {
+            logDebug("格式化标签失败: ${e.message}\n${Log.getStackTraceString(e)}")
+            LogCollector.append(this, "E", "格式化标签失败: ${e.message}")
+            appendDebugInfoDialog("异常: ${e.message.orEmpty()}")
+            "格式化失败：${e.message.orEmpty()}"
         } finally {
             try {
                 mifare.close()

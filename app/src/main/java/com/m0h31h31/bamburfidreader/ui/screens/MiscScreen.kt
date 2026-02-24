@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Divider
 import androidx.compose.material3.HorizontalDivider
@@ -32,6 +34,7 @@ import com.m0h31h31.bamburfidreader.R
 fun MiscScreen(
     onBackupDatabase: () -> String = { "" },
     onImportDatabase: () -> String = { "" },
+    onClearFuid: () -> String = { "" },
     onResetDatabase: () -> String = { "" },
     miscStatusMessage: String = "",
     onExportTagPackage: () -> String = { "" },
@@ -41,6 +44,8 @@ fun MiscScreen(
     onReadAllSectorsChange: (Boolean) -> Unit = {},
     saveKeysToFile: Boolean = false,
     onSaveKeysToFileChange: (Boolean) -> Unit = {},
+    formatTagDebugEnabled: Boolean = false,
+    onFormatTagDebugEnabledChange: (Boolean) -> Unit = {},
     forceOverwriteImport: Boolean = false,
     onForceOverwriteImportChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
@@ -50,6 +55,7 @@ fun MiscScreen(
         "bambulab://bbl/design/model/detail?design_id=2020787&instance_id=2253290&appSharePlatform=copy"
     var message by remember { mutableStateOf("") }
     var showReadAllSectorsDialog by remember { mutableStateOf(false) }
+    var showImportDatabaseConfirmDialog by remember { mutableStateOf(false) }
     
     // 处理开关变化
     fun handleReadAllSectorsChange(checked: Boolean) {
@@ -67,6 +73,11 @@ fun MiscScreen(
         showReadAllSectorsDialog = false
         onReadAllSectorsChange(true)
     }
+
+    fun confirmImportDatabase() {
+        showImportDatabaseConfirmDialog = false
+        message = onImportDatabase()
+    }
     
     Surface(
         modifier = modifier.fillMaxSize(),
@@ -75,6 +86,7 @@ fun MiscScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -134,17 +146,9 @@ fun MiscScreen(
                 )
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-            ) {
-                Text(text = "强制覆盖导入标签")
-                Switch(
-                    checked = forceOverwriteImport,
-                    onCheckedChange = onForceOverwriteImportChange
-                )
-            }
+
+
+
             
             // 读取全部扇区的弹窗提醒
             if (showReadAllSectorsDialog) {
@@ -173,6 +177,28 @@ fun MiscScreen(
                 )
             }
 
+            if (showImportDatabaseConfirmDialog) {
+                AlertDialog(
+                    onDismissRequest = { showImportDatabaseConfirmDialog = false },
+                    title = { Text(text = "确认导入数据库") },
+                    text = {
+                        Text(
+                            text = "导入数据库会覆盖当前本地耗材数据库内容。确定继续吗？"
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = ::confirmImportDatabase) {
+                            Text(text = "确定导入")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showImportDatabaseConfirmDialog = false }) {
+                            Text(text = "取消")
+                        }
+                    }
+                )
+            }
+
             HorizontalDivider(
                 modifier = Modifier.fillMaxWidth(),
                 thickness = 1.dp,
@@ -190,11 +216,36 @@ fun MiscScreen(
                     Text(text = stringResource(R.string.action_backup_db))
                 }
                 Button(
-                    onClick = { message = onImportDatabase() },
+                    onClick = { showImportDatabaseConfirmDialog = true },
                     modifier = Modifier.weight(1f)
                 ) {
                     Text(text = stringResource(R.string.action_import_db))
                 }
+            }
+
+            HorizontalDivider(
+                modifier = Modifier.fillMaxWidth(),
+                thickness = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
+
+            Button(
+                onClick = { message = onClearFuid() },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(text = "格式化标签")
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                Text(text = "显示格式化标签调试信息")
+                Switch(
+                    checked = formatTagDebugEnabled,
+                    onCheckedChange = onFormatTagDebugEnabledChange
+                )
             }
 //            Button(
 //                onClick = { message = onResetDatabase() },
@@ -225,6 +276,18 @@ fun MiscScreen(
                 ) {
                     Text(text = "导入标签包")
                 }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                Text(text = "强制覆盖导入标签")
+                Switch(
+                    checked = forceOverwriteImport,
+                    onCheckedChange = onForceOverwriteImportChange
+                )
             }
 
 

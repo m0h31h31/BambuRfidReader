@@ -130,8 +130,8 @@ object NfcTagReader {
             val rawBlocks = MutableList<ByteArray?>(mifare.blockCount) { null }
             val errors = ArrayList<String>(4)
 
-            // 读取策略：默认不读 trailer（更快+更稳）
-            val readTrailer = false
+            // 读取策略：读取 trailer，便于在 UI 中展示和排障（如 block3/block7）。
+            val readTrailer = true
 
             fun readAndFill(sector: Int, collectError: Boolean) {
                 val keyA = sectorKeys.getOrNull(sector)?.first

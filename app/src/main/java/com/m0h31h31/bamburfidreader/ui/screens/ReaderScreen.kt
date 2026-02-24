@@ -451,6 +451,32 @@ fun ReaderScreen(
                     )
                 }
 
+//                if (state.blockHexes.any { it.isNotBlank() }) {
+//                    Card(modifier = Modifier.fillMaxWidth()) {
+//                        Column(
+//                            modifier = Modifier
+//                                .fillMaxWidth()
+//                                .padding(12.dp),
+//                            verticalArrangement = Arrangement.spacedBy(4.dp)
+//                        ) {
+//                            Text(
+//                                text = "原始区块（含Trailer）",
+//                                style = MaterialTheme.typography.titleSmall
+//                            )
+//                            state.blockHexes.forEachIndexed { index, hex ->
+//                                if (hex.isNotBlank()) {
+//                                    val isTrailer = index % 4 == 3
+//                                    InfoLine(
+//                                        label = if (isTrailer) "Block$index (Trailer)" else "Block$index",
+//                                        value = hex,
+//                                        style = MaterialTheme.typography.bodySmall
+//                                    )
+//                                }
+//                            }
+//                        }
+//                    }
+//                }
+
 //                if (state.secondaryFields.isNotEmpty()) {
                 if (true) {
                     Card(modifier = Modifier.fillMaxWidth()) {
