@@ -248,6 +248,12 @@ private data class WritePrecheckResult(
     val message: String = ""
 )
 
+private data class SelfTagPackageExport(
+    val sourceDir: File,
+    val files: List<File>,
+    val zipName: String
+)
+
 class MainActivity : ComponentActivity() {
     private enum class FeedbackTone {
         SUCCESS,
@@ -571,14 +577,20 @@ class MainActivity : ComponentActivity() {
                     onResetDatabase = { resetDatabase() },
                     miscStatusMessage = miscStatusMessage,
                     onExportTagPackage = {
-                        miscStatusMessage = uiString(R.string.misc_exporting_tag_package)
-                        lifecycleScope.launch(Dispatchers.IO) {
-                            val result = exportSelfTagPackageToDownloads()
-                            withContext(Dispatchers.Main) {
-                                miscStatusMessage = result
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            miscStatusMessage = uiString(R.string.misc_exporting_tag_package)
+                            lifecycleScope.launch(Dispatchers.IO) {
+                                val result = exportSelfTagPackageToDownloads()
+                                withContext(Dispatchers.Main) {
+                                    miscStatusMessage = result
+                                }
                             }
+                            uiString(R.string.misc_exporting_tag_package)
+                        } else {
+                            val result = exportSelfTagPackageToDownloads()
+                            miscStatusMessage = result
+                            result
                         }
-                        uiString(R.string.misc_exporting_tag_package)
                     },
                     onSelectImportTagPackage = {
                         openTagPackagePicker()
@@ -683,6 +695,19 @@ class MainActivity : ComponentActivity() {
                 } else {
                     tagPreselectedFileName = null
                     writeStatusMessage = uiString(R.string.copy_recovery_not_found, uid)
+                }
+            }
+        }
+    private val exportTagPackageLauncher =
+        registerForActivityResult(ActivityResultContracts.CreateDocument(SHARE_IMPORT_ZIP_MIME)) { uri: Uri? ->
+            if (uri == null) {
+                miscStatusMessage = "已取消导出标签包"
+                return@registerForActivityResult
+            }
+            lifecycleScope.launch(Dispatchers.IO) {
+                val result = exportSelfTagPackageToUri(uri)
+                withContext(Dispatchers.Main) {
+                    miscStatusMessage = result
                 }
             }
         }
@@ -920,22 +945,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun exportSelfTagPackageToDownloads(): String {
-        val externalDir = getExternalFilesDir(null) ?: return "无法访问应用存储目录"
-        val sourceDir = File(externalDir, "rfid_files/self_${getDeviceIdSuffix()}")
-        if (!sourceDir.exists() || !sourceDir.isDirectory) {
-            return "未找到标签数据目录: ${sourceDir.name}"
-        }
-        val files = sourceDir.walkTopDown().filter { it.isFile }.toList()
-        if (files.isEmpty()) {
-            return "标签数据目录为空，无法打包"
-        }
-
-        val zipName =
-            "tag_package_${sourceDir.name}_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.zip"
+        val (export, errorMessage) = prepareSelfTagPackageExport()
+        if (export == null) return errorMessage ?: "无法准备标签包导出"
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val values = ContentValues().apply {
-                    put(android.provider.MediaStore.Downloads.DISPLAY_NAME, zipName)
+                    put(android.provider.MediaStore.Downloads.DISPLAY_NAME, export.zipName)
                     put(android.provider.MediaStore.Downloads.MIME_TYPE, SHARE_IMPORT_ZIP_MIME)
                     put(
                         android.provider.MediaStore.Downloads.RELATIVE_PATH,
@@ -946,37 +961,63 @@ class MainActivity : ComponentActivity() {
                 val uri =
                     resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
                         ?: return "创建下载文件失败"
-                resolver.openOutputStream(uri)?.use { output ->
-                    ZipOutputStream(output.buffered()).use { zip ->
-                        files.forEach { file ->
-                            val relative = file.relativeTo(sourceDir).invariantSeparatorsPath
-                            zip.putNextEntry(ZipEntry("${sourceDir.name}/$relative"))
-                            file.inputStream().use { input -> input.copyTo(zip) }
-                            zip.closeEntry()
-                        }
-                    }
-                } ?: return "打开下载文件失败"
+                writeSelfTagPackageToUri(uri, export) ?: return "打开下载文件失败"
             } else {
-                val downloadsDir =
-                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                if (!downloadsDir.exists()) downloadsDir.mkdirs()
-                val outFile = File(downloadsDir, zipName)
-                outFile.outputStream().use { output ->
-                    ZipOutputStream(output.buffered()).use { zip ->
-                        files.forEach { file ->
-                            val relative = file.relativeTo(sourceDir).invariantSeparatorsPath
-                            zip.putNextEntry(ZipEntry("${sourceDir.name}/$relative"))
-                            file.inputStream().use { input -> input.copyTo(zip) }
-                            zip.closeEntry()
-                        }
-                    }
-                }
+                exportTagPackageLauncher.launch(export.zipName)
+                return "请选择保存位置"
             }
-            "标签数据打包成功: Download/$zipName"
+            "标签数据打包成功: Download/${export.zipName}"
         } catch (e: Exception) {
             logDebug("标签数据打包失败: ${e.message}")
             "标签数据打包失败: ${e.message.orEmpty()}"
         }
+    }
+
+    private fun exportSelfTagPackageToUri(uri: Uri): String {
+        val (export, errorMessage) = prepareSelfTagPackageExport()
+        if (export == null) return errorMessage ?: "无法准备标签包导出"
+        return try {
+            writeSelfTagPackageToUri(uri, export) ?: return "打开导出文件失败"
+            "标签数据打包成功: ${export.zipName}"
+        } catch (e: Exception) {
+            logDebug("标签数据打包失败: ${e.message}")
+            "标签数据打包失败: ${e.message.orEmpty()}"
+        }
+    }
+
+    private fun prepareSelfTagPackageExport(): Pair<SelfTagPackageExport?, String?> {
+        val externalDir = getExternalFilesDir(null)
+            ?: return null to "无法访问应用存储目录"
+        val sourceDir = File(externalDir, "rfid_files/self_${getDeviceIdSuffix()}")
+        if (!sourceDir.exists() || !sourceDir.isDirectory) {
+            return null to "未找到标签数据目录: ${sourceDir.name}"
+        }
+        val files = sourceDir.walkTopDown().filter { it.isFile }.toList()
+        if (files.isEmpty()) {
+            return null to "标签数据目录为空，无法打包"
+        }
+        val zipName =
+            "tag_package_${sourceDir.name}_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.zip"
+        return SelfTagPackageExport(
+            sourceDir = sourceDir,
+            files = files,
+            zipName = zipName
+        ) to null
+    }
+
+    private fun writeSelfTagPackageToUri(uri: Uri, export: SelfTagPackageExport): Uri? {
+        val resolver = contentResolver
+        resolver.openOutputStream(uri)?.use { output ->
+            ZipOutputStream(output.buffered()).use { zip ->
+                export.files.forEach { file ->
+                    val relative = file.relativeTo(export.sourceDir).invariantSeparatorsPath
+                    zip.putNextEntry(ZipEntry("${export.sourceDir.name}/$relative"))
+                    file.inputStream().use { input -> input.copyTo(zip) }
+                    zip.closeEntry()
+                }
+            }
+        } ?: return null
+        return uri
     }
 
     private fun importTagPackageFromZipUri(uri: Uri): String {
