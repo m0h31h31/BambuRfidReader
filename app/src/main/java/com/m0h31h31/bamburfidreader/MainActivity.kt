@@ -255,7 +255,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private var nfcAdapter: NfcAdapter? = null
-    private var uiState by mutableStateOf(NfcUiState(status = "正在等待NFC..."))
+    private var uiState by mutableStateOf(NfcUiState(status = "Waiting for RFID tag"))
     private var filamentDbHelper: FilamentDbHelper? = null
     private var voiceEnabled by mutableStateOf(false)
     private var readAllSectors by mutableStateOf(false) // 控制是否读取全部扇区，默认关闭
@@ -293,14 +293,14 @@ class MainActivity : ComponentActivity() {
     private val importTagPackageLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
             if (uri == null) {
-                miscStatusMessage = "已取消选择标签包"
+                miscStatusMessage = uiString(R.string.misc_select_tag_package_canceled)
                 return@registerForActivityResult
             }
             lifecycleScope.launch(Dispatchers.IO) {
                 val message = importTagPackageFromZipUri(uri)
                 withContext(Dispatchers.Main) {
                     miscStatusMessage = message
-                    if (message.contains("成功")) {
+                    if (message.contains("成功") || message.contains("success", ignoreCase = true)) {
                         refreshShareTagItemsAsync()
                     }
                 }
@@ -366,13 +366,13 @@ class MainActivity : ComponentActivity() {
         try {
             runOnUiThread {
                 if (pendingWriteItem != null) {
-                    writeStatusMessage = "正在写入，请保持标签稳定贴合，切勿移动..."
+                    writeStatusMessage = uiString(R.string.copy_write_in_progress)
                 } else if (pendingVerifyItem != null) {
-                    writeStatusMessage = "正在校验，请保持标签稳定贴合，切勿移动..."
+                    writeStatusMessage = uiString(R.string.copy_verify_in_progress)
                 } else if (pendingNdefWriteRequest != null) {
-                    writeToolStatusMessage = "正在写入NDEF数据，请保持标签稳定贴合，切勿移动..."
+                    writeToolStatusMessage = uiString(R.string.copy_ndef_in_progress)
                 } else if (pendingClearFuid) {
-                    miscStatusMessage = "正在格式化标签，请保持标签稳定贴合，切勿移动..."
+                    miscStatusMessage = uiString(R.string.misc_format_ready)
                 }
             }
             if (pendingWriteItem != null) {
@@ -380,15 +380,15 @@ class MainActivity : ComponentActivity() {
                 val result = if (targetItem != null) {
                     writeTagFromDump(tag, targetItem)
                 } else {
-                    "写入任务为空"
+                    uiString(R.string.copy_write_task_empty)
                 }
                 runOnUiThread {
                     writeStatusMessage = result
-                    if (result.contains("成功")) {
+                    if (result.contains("成功") || result.contains("success", ignoreCase = true)) {
                         playFeedbackTone(FeedbackTone.SUCCESS)
                         pendingWriteItem = null
                         pendingVerifyItem = targetItem
-                        writeStatusMessage = "写入已完成，请移开标签后再次贴卡进行校验。"
+                        writeStatusMessage = uiString(R.string.copy_write_done_verify_again)
                     } else {
                         playFeedbackTone(FeedbackTone.FAILURE)
                     }
@@ -398,11 +398,11 @@ class MainActivity : ComponentActivity() {
                 val result = if (targetItem != null) {
                     verifyTagAgainstDump(tag, targetItem)
                 } else {
-                    "校验任务为空"
+                    uiString(R.string.copy_verify_task_empty)
                 }
                 runOnUiThread {
                     writeStatusMessage = result
-                    if (result.contains("成功")) {
+                    if (result.contains("成功") || result.contains("success", ignoreCase = true)) {
                         playFeedbackTone(FeedbackTone.SUCCESS)
                         pendingVerifyItem = null
                     } else {
@@ -414,11 +414,11 @@ class MainActivity : ComponentActivity() {
                 val result = if (request != null) {
                     writeNdefDataAndVerify(tag, request)
                 } else {
-                    "NDEF写入任务为空"
+                    uiString(R.string.copy_ndef_task_empty)
                 }
                 runOnUiThread {
                     writeToolStatusMessage = result
-                    if (result.contains("成功")) {
+                    if (result.contains("成功") || result.contains("success", ignoreCase = true)) {
                         playFeedbackTone(FeedbackTone.SUCCESS)
                     } else {
                         playFeedbackTone(FeedbackTone.FAILURE)
@@ -429,7 +429,7 @@ class MainActivity : ComponentActivity() {
                 val result = clearFuidAndResetTag(tag)
                 runOnUiThread {
                     miscStatusMessage = result
-                    if (result.contains("成功")) {
+                    if (result.contains("成功") || result.contains("success", ignoreCase = true)) {
                         playFeedbackTone(FeedbackTone.SUCCESS)
                     } else {
                         playFeedbackTone(FeedbackTone.FAILURE)
@@ -565,24 +565,24 @@ class MainActivity : ComponentActivity() {
                     onClearFuid = { enqueueClearFuidTask() },
                     onCancelClearFuid = {
                         pendingClearFuid = false
-                        miscStatusMessage = "已取消格式化任务"
+                        miscStatusMessage = uiString(R.string.misc_cancel_format_task)
                         miscStatusMessage
                     },
                     onResetDatabase = { resetDatabase() },
                     miscStatusMessage = miscStatusMessage,
                     onExportTagPackage = {
-                        miscStatusMessage = "正在打包标签数据，请稍候..."
+                        miscStatusMessage = uiString(R.string.misc_exporting_tag_package)
                         lifecycleScope.launch(Dispatchers.IO) {
                             val result = exportSelfTagPackageToDownloads()
                             withContext(Dispatchers.Main) {
                                 miscStatusMessage = result
                             }
                         }
-                        "正在打包标签数据，请稍候..."
+                        uiString(R.string.misc_exporting_tag_package)
                     },
                     onSelectImportTagPackage = {
                         openTagPackagePicker()
-                        val message = "请选择要导入的标签包(.zip)"
+                        val message = uiString(R.string.misc_select_tag_package_prompt)
                         miscStatusMessage = message
                         message
                     },
@@ -603,7 +603,7 @@ class MainActivity : ComponentActivity() {
                         if (refreshShareTagItemsAsync()) {
                             ""
                         } else {
-                            shareRefreshStatusMessage = "共享数据正在刷新中，请稍候"
+                            shareRefreshStatusMessage = uiString(R.string.copy_shared_refresh_busy)
                             scheduleClearShareRefreshStatusMessage()
                             ""
                         }
@@ -617,7 +617,7 @@ class MainActivity : ComponentActivity() {
                     onCancelWriteTag = {
                         pendingWriteItem = null
                         pendingVerifyItem = null
-                        writeStatusMessage = "已离开复制页，写入任务已停止"
+                        writeStatusMessage = uiString(R.string.copy_write_stopped_leave_page)
                     },
                     onStartNdefWrite = { request ->
                         enqueueNdefWriteTask(request)
@@ -636,37 +636,37 @@ class MainActivity : ComponentActivity() {
 
     private fun enqueueWriteTask(item: ShareTagItem) {
         if (pendingClearFuid || pendingNdefWriteRequest != null) {
-            writeStatusMessage = "请先完成当前贴卡任务"
+            writeStatusMessage = uiString(R.string.copy_finish_current_task_first)
             return
         }
         val trayUid = item.trayUid.trim()
         if (trayUid.isNotBlank() && isTrayUidExists(trayUid)) {
             android.app.AlertDialog.Builder(this@MainActivity)
-                .setTitle("料盘ID重复")
-                .setMessage("库存中已存在料盘ID：$trayUid，是否仍然继续复制写入？")
-                .setPositiveButton("继续复制") { _, _ ->
+                .setTitle(uiString(R.string.copy_duplicate_tray_title))
+                .setMessage(uiString(R.string.copy_duplicate_tray_message, trayUid))
+                .setPositiveButton(uiString(R.string.copy_continue)) { _, _ ->
                     pendingWriteItem = item
                     pendingVerifyItem = null
-                    writeStatusMessage = "写入准备就绪：请将目标空白标签紧贴 NFC 区域，保持静止直到完成。"
+                    writeStatusMessage = uiString(R.string.copy_write_ready)
                 }
-                .setNegativeButton("取消") { _, _ ->
-                    writeStatusMessage = "已取消：检测到重复料盘ID，未开始写入"
+                .setNegativeButton(uiString(R.string.action_cancel)) { _, _ ->
+                    writeStatusMessage = uiString(R.string.copy_duplicate_canceled)
                 }
                 .show()
         } else {
             pendingWriteItem = item
             pendingVerifyItem = null
-            writeStatusMessage = "写入准备就绪：请将目标空白标签紧贴 NFC 区域，保持静止直到完成。"
+            writeStatusMessage = uiString(R.string.copy_write_ready)
         }
     }
 
     private fun attemptRecoveryFromPartialRead() {
         val uid = uiState.uidHex.trim().uppercase(Locale.US)
         if (uid.isBlank()) {
-            writeStatusMessage = "修复失败：未读取到UID"
+            writeStatusMessage = uiString(R.string.copy_recovery_uid_missing)
             return
         }
-        writeStatusMessage = "正在尝试修复：按UID匹配共享文件..."
+        writeStatusMessage = uiString(R.string.copy_recovery_searching)
         lifecycleScope.launch(Dispatchers.IO) {
             val loaded = loadShareTagItems()
             val matched = loaded.firstOrNull { it.sourceUid.uppercase(Locale.US) == uid }
@@ -676,10 +676,13 @@ class MainActivity : ComponentActivity() {
                 if (matched != null) {
                     tagPreselectedFileName = matched.fileName
                     enqueueWriteTask(matched)
-                    writeStatusMessage = "已找到匹配文件并进入恢复写入：${matched.fileName.removeSuffix(".txt")}"
+                    writeStatusMessage = uiString(
+                        R.string.copy_recovery_found,
+                        matched.fileName.removeSuffix(".txt")
+                    )
                 } else {
                     tagPreselectedFileName = null
-                    writeStatusMessage = "未找到UID=$uid 对应的数据文件，请在标签页手动选择"
+                    writeStatusMessage = uiString(R.string.copy_recovery_not_found, uid)
                 }
             }
         }
@@ -778,23 +781,25 @@ class MainActivity : ComponentActivity() {
 
     private fun removeTrayFromInventory(trayUidHex: String) {
         if (trayUidHex.isBlank()) {
-            uiState = uiState.copy(status = "出库失败：未读取到料盘ID")
+            uiState = uiState.copy(status = uiString(R.string.inventory_outbound_failed_uid_missing))
             return
         }
         val db = filamentDbHelper?.writableDatabase
         if (db == null) {
-            uiState = uiState.copy(status = "出库失败：数据库不可用")
+            uiState = uiState.copy(status = uiString(R.string.inventory_outbound_failed_db_unavailable))
             return
         }
         try {
             filamentDbHelper?.deleteTrayInventory(db, trayUidHex)
             uiState = NfcUiState(
-                status = "出库成功"
+                status = uiString(R.string.inventory_outbound_success)
             )
             logDebug("出库成功: $trayUidHex")
             LogCollector.append(this, "I", "出库成功: $trayUidHex")
         } catch (e: Exception) {
-            uiState = uiState.copy(status = "出库失败：${e.message.orEmpty()}")
+            uiState = uiState.copy(
+                status = uiString(R.string.inventory_outbound_failed_detail, e.message.orEmpty())
+            )
             logDebug("出库失败: ${e.message}")
             LogCollector.append(this, "E", "出库失败: ${e.message}")
         }
@@ -1107,7 +1112,7 @@ class MainActivity : ComponentActivity() {
 
     private fun enqueueNdefWriteTask(request: NdefWriteRequest): String {
         if (pendingWriteItem != null || pendingVerifyItem != null || pendingClearFuid || pendingNdefWriteRequest != null) {
-            return "请先完成当前贴卡任务"
+            return uiString(R.string.write_finish_current_task_first)
         }
 
         val validationError = validateNdefWriteRequest(request)
@@ -1117,7 +1122,7 @@ class MainActivity : ComponentActivity() {
         }
 
         pendingNdefWriteRequest = request
-        writeToolStatusMessage = "NDEF写入准备就绪：请将目标标签紧贴 NFC 区域，保持静止直到写入与校检完成。"
+        writeToolStatusMessage = uiString(R.string.write_ndef_ready)
         return writeToolStatusMessage
     }
 
@@ -1144,12 +1149,12 @@ class MainActivity : ComponentActivity() {
 
     private fun enqueueClearFuidTask(): String {
         if (pendingWriteItem != null || pendingVerifyItem != null || pendingNdefWriteRequest != null) {
-            return "请先完成或取消当前写入/校验任务"
+            return uiString(R.string.misc_finish_current_write_verify)
         }
         resetDebugInfoDialog("格式化标签调试")
         appendDebugInfoDialog("已进入等待贴卡状态")
         pendingClearFuid = true
-        miscStatusMessage = "格式化标签准备就绪：请将目标标签紧贴 NFC 区域，保持静止直到完成。"
+        miscStatusMessage = uiString(R.string.misc_format_ready)
         return miscStatusMessage
     }
 

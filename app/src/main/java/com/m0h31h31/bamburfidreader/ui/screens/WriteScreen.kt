@@ -23,18 +23,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.m0h31h31.bamburfidreader.R
 import com.m0h31h31.bamburfidreader.ui.components.NeuButton
 import com.m0h31h31.bamburfidreader.ui.components.NeuPanel
 import com.m0h31h31.bamburfidreader.ui.components.NeuTextField
 import com.m0h31h31.bamburfidreader.ui.components.neuBackground
 
-enum class NdefWriteType(val label: String) {
-    TEXT("文本"),
-    URL("网页"),
-    PHONE("电话"),
-    WIFI("WiFi")
+enum class NdefWriteType {
+    TEXT,
+    URL,
+    PHONE,
+    WIFI
 }
 
 data class NdefWriteRequest(
@@ -92,7 +94,7 @@ fun WriteScreen(
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp)
             ) {
                 Text(
-                    text = "本页功能与耗材无关，用于向标签写入自定义数据以实现一些有趣的用途。支持向拓竹官方标签卡写入其他数据，但通常需要先对标签执行“格式化标签”操作。",
+                    text = stringResource(R.string.write_intro),
                     modifier = Modifier,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface
@@ -100,7 +102,7 @@ fun WriteScreen(
             }
 
             Text(
-                text = "写入类型",
+                text = stringResource(R.string.write_type),
                 style = MaterialTheme.typography.titleMedium
             )
 
@@ -113,7 +115,14 @@ fun WriteScreen(
                         selected = currentType == type,
                         onClick = { selectedType = type.name }
                     )
-                    Text(text = type.label)
+                    Text(
+                        text = when (type) {
+                            NdefWriteType.TEXT -> stringResource(R.string.write_type_text)
+                            NdefWriteType.URL -> stringResource(R.string.write_type_url)
+                            NdefWriteType.PHONE -> stringResource(R.string.write_type_phone)
+                            NdefWriteType.WIFI -> "WiFi"
+                        }
+                    )
                 }
             }
 
@@ -123,10 +132,10 @@ fun WriteScreen(
                         value = textContent,
                         onValueChange = { textContent = it },
                         modifier = Modifier.fillMaxWidth(),
-                        label = "文本内容"
+                        label = stringResource(R.string.write_text_label)
                     )
                     Text(
-                        text = "写入内容指引：例如 Hello NFC / 设备编号 / 备注信息",
+                        text = stringResource(R.string.write_text_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -137,10 +146,10 @@ fun WriteScreen(
                         value = url,
                         onValueChange = { url = it },
                         modifier = Modifier.fillMaxWidth(),
-                        label = "网页地址"
+                        label = stringResource(R.string.write_url_label)
                     )
                     Text(
-                        text = "写入内容指引：例如 https://example.com",
+                        text = stringResource(R.string.write_url_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -151,10 +160,10 @@ fun WriteScreen(
                         value = phone,
                         onValueChange = { phone = it },
                         modifier = Modifier.fillMaxWidth(),
-                        label = "电话号码"
+                        label = stringResource(R.string.write_phone_label)
                     )
                     Text(
-                        text = "写入内容指引：例如 +8613812345678",
+                        text = stringResource(R.string.write_phone_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -165,22 +174,22 @@ fun WriteScreen(
                         value = wifiSsid,
                         onValueChange = { wifiSsid = it },
                         modifier = Modifier.fillMaxWidth(),
-                        label = "WiFi 名称 (SSID)"
+                        label = stringResource(R.string.write_wifi_ssid)
                     )
                     NeuTextField(
                         value = wifiPassword,
                         onValueChange = { wifiPassword = it },
                         modifier = Modifier.fillMaxWidth(),
-                        label = "WiFi 密码"
+                        label = stringResource(R.string.write_wifi_password)
                     )
                     NeuTextField(
                         value = wifiSecurity,
                         onValueChange = { wifiSecurity = it },
                         modifier = Modifier.fillMaxWidth(),
-                        label = "加密类型"
+                        label = stringResource(R.string.write_wifi_security)
                     )
                     Text(
-                        text = "写入内容指引：SSID 填名称，密码可留空（开放网络），加密类型填写 WPA/WEP/NONE。WiFi 将以 NDEF 文本记录写入（WIFI:... 格式）。",
+                        text = stringResource(R.string.write_wifi_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -188,7 +197,7 @@ fun WriteScreen(
             }
 
             NeuButton(
-                text = "开始写入（贴卡执行）",
+                text = stringResource(R.string.write_start),
                 onClick = { pageMessage = onStartNdefWrite(buildRequest()) },
                 modifier = Modifier.fillMaxWidth()
             )

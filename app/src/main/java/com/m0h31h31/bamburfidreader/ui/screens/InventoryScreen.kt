@@ -210,7 +210,7 @@ fun InventoryScreen(
     if (pendingEdit != null) {
         AlertDialog(
             onDismissRequest = { pendingEdit = null },
-            title = { Text(text = "编辑耗材") },
+            title = { Text(text = stringResource(R.string.inventory_edit_title)) },
             text = {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -243,15 +243,10 @@ fun InventoryScreen(
                                     editPercent = (intValue * 100f / editTotalGrams)
                                 }
                             },
-                            label = { Text(text = "剩余克重(g)") },
+                            label = { Text(text = stringResource(R.string.inventory_remaining_grams_label)) },
                             singleLine = true,
                             modifier = modifier.weight(1f)
                         )
-//                        Text(
-//                            text = "g",
-//                            style = MaterialTheme.typography.bodyMedium,
-//                            modifier = Modifier.padding(start = 8.dp)
-//                        )
                         Button(
                             onClick = {
                                 val target = pendingEdit
@@ -314,7 +309,7 @@ fun InventoryScreen(
                         pendingEdit = null
                     }
                 ) {
-                    Text(text = "确定")
+                    Text(text = stringResource(R.string.action_confirm))
                 }
             },
             dismissButton = {
@@ -364,7 +359,7 @@ fun InventoryScreen(
                             Icons.Filled.ArrowUpward 
                         else
                             Icons.AutoMirrored.Filled.Sort,
-                        contentDescription = "排序",
+                        contentDescription = stringResource(R.string.inventory_sort),
                         tint = if (sortByRemaining) MaterialTheme.colorScheme.primary 
                         else MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -422,7 +417,7 @@ fun InventoryScreen(
                                 val text = if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
                                     stringResource(R.string.action_delete)
                                 } else {
-                                    "编辑"
+                                    stringResource(R.string.inventory_edit)
                                 }
                                 Box(
                                     modifier = Modifier
@@ -511,9 +506,12 @@ fun InventoryScreen(
                                                 ) {
                                                     Text(
                                                         text = if (item.remainingGrams != null) {
-                                                            "剩余克重: ${item.remainingGrams}g"
+                                                            stringResource(
+                                                                R.string.inventory_remaining_grams_value,
+                                                                item.remainingGrams.toString()
+                                                            )
                                                         } else {
-                                                            "剩余克重: 未知"
+                                                            stringResource(R.string.inventory_remaining_grams_unknown)
                                                         },
                                                         style = MaterialTheme.typography.bodySmall,
                                                         color = MaterialTheme.colorScheme.onSurfaceVariant

@@ -20,6 +20,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
@@ -43,9 +44,9 @@ private enum class StatusTone {
 private fun resolveStatusTone(message: String): StatusTone {
     val text = message.lowercase()
     return when {
-        listOf("失败", "错误", "异常", "取消", "不可用").any { it in text } -> StatusTone.ERROR
-        listOf("成功", "完成", "已保存", "已打包", "已停止", "已导入").any { it in text } -> StatusTone.SUCCESS
-        listOf("提醒", "警告", "请", "等待", "准备", "覆盖").any { it in text } -> StatusTone.WARNING
+        listOf("失败", "错误", "异常", "取消", "不可用", "failed", "error", "cancel", "unavailable").any { it in text } -> StatusTone.ERROR
+        listOf("成功", "完成", "已保存", "已打包", "已停止", "已导入", "success", "completed", "saved", "exported", "stopped", "imported").any { it in text } -> StatusTone.SUCCESS
+        listOf("提醒", "警告", "请", "等待", "准备", "覆盖", "warning", "please", "wait", "ready", "overwrite").any { it in text } -> StatusTone.WARNING
         else -> StatusTone.INFO
     }
 }
@@ -90,12 +91,20 @@ fun MiscScreen(
     var visibleStatusMessage by remember { mutableStateOf("") }
     var lastMiscStatusMessage by remember { mutableStateOf(miscStatusMessage) }
     var lastPageMessage by remember { mutableStateOf(message) }
+    var dismissedStatusMessage by rememberSaveable { mutableStateOf("") }
     var showReadAllSectorsDialog by remember { mutableStateOf(false) }
     var showImportDatabaseConfirmDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(miscStatusMessage, message) {
         val trimmedMiscStatus = miscStatusMessage.trim()
         val trimmedPageMessage = message.trim()
+        if (
+            dismissedStatusMessage.isNotBlank() &&
+            trimmedMiscStatus != dismissedStatusMessage &&
+            trimmedPageMessage != dismissedStatusMessage
+        ) {
+            dismissedStatusMessage = ""
+        }
         val nextMessage = when {
             trimmedPageMessage != lastPageMessage && trimmedPageMessage.isNotBlank() -> trimmedPageMessage
             trimmedMiscStatus != lastMiscStatusMessage && trimmedMiscStatus.isNotBlank() -> trimmedMiscStatus
@@ -108,10 +117,15 @@ fun MiscScreen(
             visibleStatusMessage = ""
             return@LaunchedEffect
         }
+        if (nextMessage == dismissedStatusMessage) {
+            visibleStatusMessage = ""
+            return@LaunchedEffect
+        }
         visibleStatusMessage = nextMessage
         delay(10000)
         if (visibleStatusMessage == nextMessage) {
             visibleStatusMessage = ""
+            dismissedStatusMessage = nextMessage
         }
     }
 
@@ -173,7 +187,7 @@ fun MiscScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                     ) {
-                        Text(text = "读取全部扇区数据并保存文件")
+                        Text(text = stringResource(R.string.misc_read_all_sectors))
                         Switch(
                             checked = readAllSectors,
                             onCheckedChange = ::handleReadAllSectorsChange
@@ -185,7 +199,7 @@ fun MiscScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                     ) {
-                        Text(text = "保存秘钥到文件")
+                        Text(text = stringResource(R.string.misc_save_keys))
                         Switch(
                             checked = saveKeysToFile,
                             onCheckedChange = onSaveKeysToFileChange
@@ -197,20 +211,20 @@ fun MiscScreen(
             if (showReadAllSectorsDialog) {
                 AlertDialog(
                     onDismissRequest = { showReadAllSectorsDialog = false },
-                    title = { Text(text = "读取全部数据提醒") },
+                    title = { Text(text = stringResource(R.string.misc_read_all_title)) },
                     text = {
                         Text(
-                            text = "读取全部数据会影响读取速度，数据会保存在包名(Android/data/com.m0h31h31.bamburfidreader/)下的 rfid_file/self_xxxxx 文件夹下。确定要开启吗？"
+                            text = stringResource(R.string.misc_read_all_message)
                         )
                     },
                     confirmButton = {
                         TextButton(onClick = ::confirmReadAllSectors) {
-                            Text(text = "确定")
+                            Text(text = stringResource(R.string.action_confirm))
                         }
                     },
                     dismissButton = {
                         TextButton(onClick = { showReadAllSectorsDialog = false }) {
-                            Text(text = "取消")
+                            Text(text = stringResource(R.string.action_cancel))
                         }
                     }
                 )
@@ -219,18 +233,18 @@ fun MiscScreen(
             if (showImportDatabaseConfirmDialog) {
                 AlertDialog(
                     onDismissRequest = { showImportDatabaseConfirmDialog = false },
-                    title = { Text(text = "确认导入数据库") },
+                    title = { Text(text = stringResource(R.string.misc_import_db_title)) },
                     text = {
-                        Text(text = "导入数据库会覆盖当前本地耗材数据库内容。确定继续吗？")
+                        Text(text = stringResource(R.string.misc_import_db_message))
                     },
                     confirmButton = {
                         TextButton(onClick = ::confirmImportDatabase) {
-                            Text(text = "确定导入")
+                            Text(text = stringResource(R.string.misc_confirm_import))
                         }
                     },
                     dismissButton = {
                         TextButton(onClick = { showImportDatabaseConfirmDialog = false }) {
-                            Text(text = "取消")
+                            Text(text = stringResource(R.string.action_cancel))
                         }
                     }
                 )
@@ -253,7 +267,11 @@ fun MiscScreen(
             }
 
             NeuButton(
-                text = if (formatInProgress) "取消格式化" else "格式化标签",
+                text = if (formatInProgress) {
+                    stringResource(R.string.misc_cancel_format)
+                } else {
+                    stringResource(R.string.misc_format_tag)
+                },
                 onClick = {
                     message = if (formatInProgress) {
                         onCancelClearFuid()
@@ -270,7 +288,7 @@ fun MiscScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                 ) {
-                    Text(text = "显示格式化标签调试信息")
+                    Text(text = stringResource(R.string.misc_format_debug))
                     Switch(
                         checked = formatTagDebugEnabled,
                         onCheckedChange = onFormatTagDebugEnabledChange
@@ -283,12 +301,12 @@ fun MiscScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 NeuButton(
-                    text = "打包标签数据",
+                    text = stringResource(R.string.misc_export_tag_package),
                     onClick = { message = onExportTagPackage() },
                     modifier = Modifier.weight(1f)
                 )
                 NeuButton(
-                    text = "导入标签包",
+                    text = stringResource(R.string.misc_import_tag_package),
                     onClick = { message = onSelectImportTagPackage() },
                     modifier = Modifier.weight(1f)
                 )
@@ -300,7 +318,7 @@ fun MiscScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                 ) {
-                    Text(text = "强制覆盖导入标签")
+                    Text(text = stringResource(R.string.misc_force_overwrite_import))
                     Switch(
                         checked = forceOverwriteImport,
                         onCheckedChange = onForceOverwriteImportChange

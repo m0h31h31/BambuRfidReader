@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -42,6 +43,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.m0h31h31.bamburfidreader.R
 import com.m0h31h31.bamburfidreader.FilamentDbHelper
 import com.m0h31h31.bamburfidreader.InventoryItem
 import com.m0h31h31.bamburfidreader.ui.components.ColorSwatch
@@ -136,6 +138,7 @@ private const val KEY_MERGE_SAME_COLOR_ITEMS = "merge_same_color_items"
 @Composable
 fun DataScreen(dbHelper: FilamentDbHelper?, modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val unknownColorText = stringResource(R.string.data_unknown_color)
     val prefs = remember(context) {
         context.getSharedPreferences(DATA_SCREEN_PREFS, Context.MODE_PRIVATE)
     }
@@ -168,9 +171,9 @@ fun DataScreen(dbHelper: FilamentDbHelper?, modifier: Modifier = Modifier) {
         if (db != null) {
             val items = withContext(Dispatchers.IO) { dbHelper.getAllInventory(db) }
             val grouped = if (useDetailedClassification.value) {
-                items.groupBy { item -> item.materialDetailedType.ifBlank { "未知" } }
+                items.groupBy { item -> item.materialDetailedType.ifBlank { context.getString(R.string.data_unknown_group) } }
             } else {
-                items.groupBy { item -> item.materialType.ifBlank { "未知" } }
+                items.groupBy { item -> item.materialType.ifBlank { context.getString(R.string.data_unknown_group) } }
             }
             val sortedKeys = grouped.keys.sortedWith { a, b ->
                 val countA = grouped[a]?.size ?: 0
@@ -200,35 +203,47 @@ fun DataScreen(dbHelper: FilamentDbHelper?, modifier: Modifier = Modifier) {
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = "分类")
+                Text(text = stringResource(R.string.data_grouping))
                 Switch(
                     checked = useDetailedClassification.value,
                     onCheckedChange = { useDetailedClassification.value = it }
                 )
-                Text(text = if (useDetailedClassification.value) "详细" else "简洁")
+                Text(
+                    text = if (useDetailedClassification.value) {
+                        stringResource(R.string.data_grouping_detailed)
+                    } else {
+                        stringResource(R.string.data_grouping_simple)
+                    }
+                )
             }
             Row(
                 modifier = Modifier.weight(1f),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = "合并")
+                Text(text = stringResource(R.string.data_merge))
                 Switch(
                     checked = mergeSameColorItems.value,
                     onCheckedChange = { mergeSameColorItems.value = it }
                 )
-                Text(text = if (mergeSameColorItems.value) "开" else "关")
+                Text(
+                    text = if (mergeSameColorItems.value) {
+                        stringResource(R.string.data_switch_on)
+                    } else {
+                        stringResource(R.string.data_switch_off)
+                    }
+                )
             }
         }
         Spacer(modifier = Modifier.padding(top = 3.dp))
 
         if (isLoading.value) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(text = "加载中...")
+                Text(text = stringResource(R.string.data_loading))
             }
         } else if (groupedItems.value.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(text = "暂无数据")
+                Text(text = stringResource(R.string.data_empty))
             }
         } else {
             LazyColumn(
@@ -254,7 +269,11 @@ fun DataScreen(dbHelper: FilamentDbHelper?, modifier: Modifier = Modifier) {
                         ) {
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(
-                                    text = "$materialType (${items.size})",
+                                    text = stringResource(
+                                        R.string.data_group_title_format,
+                                        materialType,
+                                        items.size
+                                    ),
                                     fontSize = 17.sp,
                                     fontWeight = FontWeight.Medium
                                 )
@@ -318,7 +337,13 @@ fun DataScreen(dbHelper: FilamentDbHelper?, modifier: Modifier = Modifier) {
             onDismissRequest = { activeStackDialog.value = null },
             title = {
                 Text(
-                    text = "${dialogStack.displayItem.colorName.ifBlank { "未知颜色" }} · ${dialogStack.count}",
+                    text = stringResource(
+                        R.string.data_stack_title_format,
+                        dialogStack.displayItem.colorName.ifBlank {
+                            context.getString(R.string.data_unknown_color)
+                        },
+                        dialogStack.count
+                    ),
                     fontWeight = FontWeight.SemiBold
                 )
             },
@@ -346,12 +371,17 @@ fun DataScreen(dbHelper: FilamentDbHelper?, modifier: Modifier = Modifier) {
                                 )
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = item.colorName.ifBlank { "未知颜色" },
+                                        text = item.colorName.ifBlank {
+                                            unknownColorText
+                                        },
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.SemiBold
                                     )
                                     Text(
-                                        text = "UID ${item.trayUid.takeLast(8)}",
+                                        text = stringResource(
+                                            R.string.data_uid_short,
+                                            item.trayUid.takeLast(8)
+                                        ),
                                         fontSize = 10.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -368,7 +398,7 @@ fun DataScreen(dbHelper: FilamentDbHelper?, modifier: Modifier = Modifier) {
             },
             confirmButton = {
                 TextButton(onClick = { activeStackDialog.value = null }) {
-                    Text("关闭")
+                    Text(stringResource(R.string.data_close))
                 }
             }
         )

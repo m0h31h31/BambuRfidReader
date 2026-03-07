@@ -307,7 +307,7 @@ fun ReaderScreen(
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(
-                                            text = "出库",
+                                            text = stringResource(R.string.reader_outbound),
                                             color = MaterialTheme.colorScheme.onErrorContainer,
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.Bold,
@@ -485,7 +485,7 @@ fun ReaderScreen(
                 }
                 if (showRecoveryAction) {
                     NeuButton(
-                        text = "尝试修复",
+                        text = stringResource(R.string.reader_recovery),
                         onClick = onAttemptRecovery,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -493,8 +493,8 @@ fun ReaderScreen(
                 if (showOutboundConfirm) {
                     AlertDialog(
                         onDismissRequest = { showOutboundConfirm = false },
-                        title = { Text("确认出库") },
-                        text = { Text("确定删除该料盘ID记录吗？") },
+                        title = { Text(stringResource(R.string.reader_outbound_confirm_title)) },
+                        text = { Text(stringResource(R.string.reader_outbound_confirm_message)) },
                         confirmButton = {
                             TextButton(
                                 onClick = {
@@ -502,14 +502,14 @@ fun ReaderScreen(
                                     showOutboundConfirm = false
                                 }
                             ) {
-                                Text("确定")
+                                Text(stringResource(R.string.action_confirm))
                             }
                         },
                         dismissButton = {
                             TextButton(
                                 onClick = { showOutboundConfirm = false }
                             ) {
-                                Text("取消")
+                                Text(stringResource(R.string.action_cancel))
                             }
                         }
                     )
@@ -559,7 +559,7 @@ fun ReaderScreen(
                                     style = MaterialTheme.typography.titleSmall
                                 )
                                 InfoLine(
-                                    label = "卡UID",
+                                    label = stringResource(R.string.reader_card_uid),
                                     value = state.uidHex.ifBlank { "-" },
                                     style = MaterialTheme.typography.bodySmall,
                                     inline = true
@@ -640,7 +640,10 @@ fun ReaderScreen(
                         .padding(horizontal = 12.dp, vertical = 6.dp)
                 ) {
                     Text(
-                        text = "功德+${meritToastCount.coerceAtLeast(1)}",
+                        text = stringResource(
+                            R.string.reader_merit_format,
+                            meritToastCount.coerceAtLeast(1)
+                        ),
                         style = MaterialTheme.typography.labelLarge,
                         color = meritToastTextColor,
                         fontWeight = FontWeight.SemiBold

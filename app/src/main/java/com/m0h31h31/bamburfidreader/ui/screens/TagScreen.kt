@@ -105,6 +105,10 @@ fun TagScreen(
     var selectedFileName by remember { mutableStateOf<String?>(null) }
     var hintMessage by remember { mutableStateOf("") }
     var pendingDeleteItem by remember { mutableStateOf<ShareTagItem?>(null) }
+    val unknownText = stringResource(R.string.label_unknown)
+    val unknownColorText = stringResource(R.string.data_unknown_color)
+    val unknownColorIdText = stringResource(R.string.tag_unknown_color_id)
+    val selectOneFirstText = stringResource(R.string.tag_select_one_first)
 
     LaunchedEffect(preselectedFileName, items) {
         val target = preselectedFileName
@@ -152,11 +156,11 @@ fun TagScreen(
                 NeuTextField(
                     value = query,
                     onValueChange = { query = it },
-                    label = "按耗材/颜色筛选(支持 pla红)",
+                    label = stringResource(R.string.tag_search_placeholder),
                     modifier = Modifier.weight(1f)
                 )
                 NeuButton(
-                    text = "刷新",
+                    text = stringResource(R.string.tag_refresh),
                     onClick = { hintMessage = onRefresh() },
                     modifier = Modifier.width(88.dp)
                 )
@@ -177,7 +181,11 @@ fun TagScreen(
                 )
             }
             Text(
-                text = "总数: ${items.size}    当前筛选: ${filteredItems.size}",
+                text = stringResource(
+                    R.string.tag_summary_format,
+                    items.size,
+                    filteredItems.size
+                ),
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -220,7 +228,7 @@ fun TagScreen(
                                         contentAlignment = Alignment.CenterEnd
                                     ) {
                                         Text(
-                                            text = "删除",
+                                            text = stringResource(R.string.action_delete),
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = Color.White,
                                             fontWeight = FontWeight.SemiBold
@@ -244,11 +252,15 @@ fun TagScreen(
                                     ) {
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(
-                                                text = item.materialType.ifBlank { "未知" },
+                                                text = item.materialType.ifBlank { unknownText },
                                                 style = MaterialTheme.typography.bodyMedium
                                             )
                                             Text(
-                                                text = "UID: ${uidDisplayName(item.fileName)}    颜色ID: ${item.colorUid.ifBlank { "未知" }}",
+                                                text = stringResource(
+                                                    R.string.tag_uid_color_id_format,
+                                                    uidDisplayName(item.fileName),
+                                                    item.colorUid.ifBlank { unknownColorIdText }
+                                                ),
                                                 fontSize = 12.sp,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
@@ -258,7 +270,7 @@ fun TagScreen(
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Text(
-                                                text = item.colorName.ifBlank { "未知颜色" },
+                                                text = item.colorName.ifBlank { unknownColorText },
                                                 fontSize = 12.sp
                                             )
                                             ColorSwatch(
@@ -281,7 +293,7 @@ fun TagScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             CircularProgressIndicator(modifier = Modifier.width(18.dp).height(18.dp), strokeWidth = 2.dp)
-                            Text(text = "正在加载共享数据...", fontSize = 11.sp)
+                            Text(text = stringResource(R.string.tag_loading_shared_data), fontSize = 11.sp)
                         }
                     }
                 }
@@ -296,32 +308,32 @@ fun TagScreen(
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     Text(
-                        "写入前请严格遵守：",
+                        stringResource(R.string.tag_write_notice_title),
                         color = MaterialTheme.colorScheme.error,
                         fontSize = 11.sp,
                         lineHeight = 13.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        "1. 标签必须紧贴手机 NFC 区域，写入过程中不要移动",
+                        stringResource(R.string.tag_write_notice_1),
                         fontSize = 10.sp,
                         lineHeight = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        "2. 写入完成按提示,移开标签,再贴上识别验证",
+                        stringResource(R.string.tag_write_notice_2),
                         fontSize = 10.sp,
                         lineHeight = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        "3. 不要写入已有的标签,相同的标签会被识别为一卷料",
+                        stringResource(R.string.tag_write_notice_3),
                         fontSize = 10.sp,
                         lineHeight = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        "4. 写入可能失败!作者不对任何后果负责!!!",
+                        stringResource(R.string.tag_write_notice_4),
                         color = MaterialTheme.colorScheme.error,
                         fontSize = 10.sp,
                         lineHeight = 12.sp,
@@ -332,7 +344,10 @@ fun TagScreen(
 
             if (selectedItem != null) {
                 Text(
-                    text = "当前选择: ${uidDisplayName(selectedItem.fileName)}",
+                    text = stringResource(
+                        R.string.tag_current_selection,
+                        uidDisplayName(selectedItem.fileName)
+                    ),
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -342,26 +357,37 @@ fun TagScreen(
             if (deleteTarget != null) {
                 AlertDialog(
                     onDismissRequest = { pendingDeleteItem = null },
-                    title = { Text("确认删除") },
-                    text = { Text("确定删除标签 ${uidDisplayName(deleteTarget.fileName)} 吗？") },
+                    title = { Text(stringResource(R.string.tag_delete_confirm_title)) },
+                    text = {
+                        Text(
+                            stringResource(
+                                R.string.tag_delete_confirm_message,
+                                uidDisplayName(deleteTarget.fileName)
+                            )
+                        )
+                    },
                     confirmButton = {
                         TextButton(
                             onClick = {
                                 val message = onDelete(deleteTarget)
                                 hintMessage = message
-                                val deleted = message.startsWith("删除成功") || message.contains("已从列表移除")
+                                val lowerMessage = message.lowercase()
+                                val deleted = message.startsWith("删除成功") ||
+                                    message.contains("已从列表移除") ||
+                                    lowerMessage.startsWith("delete success") ||
+                                    lowerMessage.contains("removed from list")
                                 if (deleted && selectedFileName == deleteTarget.relativePath) {
                                     selectedFileName = null
                                 }
                                 pendingDeleteItem = null
                             }
                         ) {
-                            Text("删除")
+                            Text(stringResource(R.string.action_delete))
                         }
                     },
                     dismissButton = {
                         TextButton(onClick = { pendingDeleteItem = null }) {
-                            Text("取消")
+                            Text(stringResource(R.string.action_cancel))
                         }
                     }
                 )
@@ -373,20 +399,20 @@ fun TagScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 NeuButton(
-                    text = "开始写入",
+                    text = stringResource(R.string.tag_start_write),
                     onClick = {
                         val item = selectedItem
                         if (item != null) {
                             onStartWrite(item)
                         } else {
-                            hintMessage = "请先选择一条数据"
+                            hintMessage = selectOneFirstText
                         }
                     },
                     enabled = !writeInProgress && selectedItem != null,
                     modifier = Modifier.weight(1f)
                 )
                 NeuButton(
-                    text = "取消写入",
+                    text = stringResource(R.string.tag_cancel_write),
                     onClick = onCancelWrite,
                     enabled = writeInProgress,
                     modifier = Modifier.weight(1f)
@@ -395,8 +421,11 @@ fun TagScreen(
 
             if (writeStatusMessage.isNotBlank()) {
                 val statusColor = when {
-                    writeStatusMessage.contains("成功") -> MaterialTheme.colorScheme.primary
-                    writeStatusMessage.contains("失败") -> MaterialTheme.colorScheme.error
+                    writeStatusMessage.contains("成功", ignoreCase = true) ||
+                        writeStatusMessage.contains("success", ignoreCase = true) -> MaterialTheme.colorScheme.primary
+                    writeStatusMessage.contains("失败", ignoreCase = true) ||
+                        writeStatusMessage.contains("fail", ignoreCase = true) ||
+                        writeStatusMessage.contains("error", ignoreCase = true) -> MaterialTheme.colorScheme.error
                     else -> MaterialTheme.colorScheme.onSurfaceVariant
                 }
                 Text(
