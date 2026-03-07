@@ -28,7 +28,7 @@ android {
         minSdk = 28
         targetSdk = 36
         versionCode = 2
-        versionName = "2.8"
+        versionName = "2.9"
         val eventApiKey = localProperties.getProperty("EVENT_API_KEY", "")
         buildConfigField("String", "EVENT_API_KEY", "\"${escapeBuildConfigString(eventApiKey)}\"")
 

@@ -1,6 +1,13 @@
 package com.m0h31h31.bamburfidreader.ui.screens
 
 import android.graphics.BitmapFactory
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -12,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -29,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
@@ -79,10 +88,12 @@ fun MiscScreen(
     onImportDatabase: () -> String = { "" },
     onClearFuid: () -> String = { "" },
     onCancelClearFuid: () -> String = { "" },
+    onClearSelfTags: () -> String = { "" },
     onResetDatabase: () -> String = { "" },
     miscStatusMessage: String = "",
     onExportTagPackage: () -> String = { "" },
     onSelectImportTagPackage: () -> String = { "" },
+    selfTagCount: Int = 0,
     appConfigMessage: String = "",
     appConfigAdMessage: String = "",
     boostLink: ConfigManager.AppLinkConfig = ConfigManager.AppLinkConfig("", ""),
@@ -115,6 +126,27 @@ fun MiscScreen(
     var dismissedStatusMessage by rememberSaveable { mutableStateOf("") }
     var showReadAllSectorsDialog by remember { mutableStateOf(false) }
     var showImportDatabaseConfirmDialog by remember { mutableStateOf(false) }
+    var showClearSelfTagsConfirmDialog by remember { mutableStateOf(false) }
+    var versionTapCount by rememberSaveable { mutableStateOf(0) }
+    var versionEggVisible by remember { mutableStateOf(false) }
+    var versionEggNonce by remember { mutableStateOf(0) }
+    val versionEggPalette = remember {
+        listOf(
+            Color(0xFFE8F2FF),
+            Color(0xFFFFF4DD),
+            Color(0xFFEAF9F0),
+            Color(0xFFFFEBF1),
+            Color(0xFFF2ECFF)
+        )
+    }
+    val versionEggAccent = versionEggPalette[versionEggNonce % versionEggPalette.size]
+    val versionEggMessageRes = when {
+        versionTapCount >= 8 -> R.string.misc_easter_egg_5
+        versionTapCount >= 6 -> R.string.misc_easter_egg_4
+        versionTapCount >= 4 -> R.string.misc_easter_egg_3
+        versionTapCount >= 2 -> R.string.misc_easter_egg_2
+        else -> R.string.misc_easter_egg_1
+    }
 
     LaunchedEffect(miscStatusMessage, message) {
         val trimmedMiscStatus = miscStatusMessage.trim()
@@ -148,6 +180,13 @@ fun MiscScreen(
             visibleStatusMessage = ""
             dismissedStatusMessage = nextMessage
         }
+    }
+
+    LaunchedEffect(versionEggVisible, versionEggNonce) {
+        if (!versionEggVisible) return@LaunchedEffect
+        delay(900)
+        versionEggVisible = false
+        versionTapCount = 0
     }
 
     fun handleReadAllSectorsChange(checked: Boolean) {
@@ -289,6 +328,31 @@ fun MiscScreen(
                 )
             }
 
+            if (showClearSelfTagsConfirmDialog) {
+                AlertDialog(
+                    onDismissRequest = { showClearSelfTagsConfirmDialog = false },
+                    title = { Text(text = stringResource(R.string.misc_clear_self_tags_title)) },
+                    text = {
+                        Text(text = stringResource(R.string.misc_clear_self_tags_message))
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                showClearSelfTagsConfirmDialog = false
+                                message = onClearSelfTags()
+                            }
+                        ) {
+                            Text(text = stringResource(R.string.action_confirm))
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showClearSelfTagsConfirmDialog = false }) {
+                            Text(text = stringResource(R.string.action_cancel))
+                        }
+                    }
+                )
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -340,7 +404,7 @@ fun MiscScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 NeuButton(
-                    text = stringResource(R.string.misc_export_tag_package),
+                    text = stringResource(R.string.misc_export_tag_package_with_count, selfTagCount),
                     onClick = { message = onExportTagPackage() },
                     modifier = Modifier.weight(1f)
                 )
@@ -350,6 +414,12 @@ fun MiscScreen(
                     modifier = Modifier.weight(1f)
                 )
             }
+
+            NeuButton(
+                text = stringResource(R.string.misc_clear_self_tags),
+                onClick = { showClearSelfTagsConfirmDialog = true },
+                modifier = Modifier.fillMaxWidth()
+            )
 
             NeuPanel(modifier = Modifier.fillMaxWidth()) {
                 Row(
@@ -446,12 +516,51 @@ fun MiscScreen(
             }
 
             if (appVersion.isNotBlank()) {
-                NeuPanel(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = stringResource(R.string.misc_version_format, appVersion),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                val versionTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                val versionEggTextColor = MaterialTheme.colorScheme.onSurface
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    NeuPanel(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                versionTapCount += 1
+                                versionEggNonce += 1
+                                versionEggVisible = false
+                                versionEggVisible = true
+                            }
+                    ) {
+                        Text(
+                            text = stringResource(R.string.misc_version_format, appVersion),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = versionTextColor
+                        )
+                    }
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = versionEggVisible,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = (-8).dp, y = (-12).dp),
+                        enter = fadeIn() + scaleIn(
+                            initialScale = 0.85f,
+                            animationSpec = spring(dampingRatio = 0.72f, stiffness = 520f)
+                        ),
+                        exit = fadeOut() + scaleOut(targetScale = 0.92f)
+                    ) {
+                        Surface(
+                            shape = logoShape,
+                            color = versionEggAccent,
+                            tonalElevation = 0.dp,
+                            shadowElevation = 6.dp,
+                            border = BorderStroke(1.dp, versionEggAccent.copy(alpha = 0.95f))
+                        ) {
+                            Text(
+                                text = stringResource(versionEggMessageRes),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = versionEggTextColor
+                            )
+                        }
+                    }
                 }
             }
         }

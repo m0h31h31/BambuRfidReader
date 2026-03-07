@@ -20,13 +20,14 @@
 
 ------
 
-## 📚 教程
+## 📲 下载地址
 
-
+### 👉️[gitee releases](https://gitee.com/JackMoHeiHei/BambuRfidReader/releases) 	👉️[github releases](https://github.com/m0h31h31/BambuRfidReader/releases) 
 
 ------
 
-## 🧩 MakerWorld 支持（Logo 模型）
+
+## 🧩 MakerWorld 支持（Logo 模型 & 标签固定壳）
 
 我在 MakerWorld 发布了一个 **Logo 模型**，欢迎助力 & 打印支持一下 🙌
  （可缩小打印，减少耗材浪费并节省打印时间）
@@ -38,8 +39,8 @@
 
 ## 🖼️ 应用截图
 
-![应用截图1](https://github.com/m0h31h31/BambuRfidReader/blob/master/img/1.jpg)
- ![应用截图2](https://github.com/m0h31h31/BambuRfidReader/blob/master/img/2.jpg)
+![应用截图](https://github.com/m0h31h31/BambuRfidReader/blob/master/img/brr.png)
+![应用截图](https://gitee.com/JackMoHeiHei/BambuRfidReader/blob/master/img/brr.png)
 
 ------
 
@@ -65,5 +66,14 @@
    https://github.com/ikarus23/MifareClassicTool
 
 - Bambu-Lab-RFID-Library
+  
+   https://github.com/queengooborg/Bambu-Lab-RFID-Library
 
-​	https://github.com/queengooborg/Bambu-Lab-RFID-Library
+
+
+
+
+ 
+
+
+

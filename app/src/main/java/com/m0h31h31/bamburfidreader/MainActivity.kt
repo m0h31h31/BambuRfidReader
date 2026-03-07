@@ -289,6 +289,7 @@ class MainActivity : ComponentActivity() {
     private var shareRefreshStatusClearJob: Job? = null
     private var miscStatusMessage by mutableStateOf("")
     private var writeToolStatusMessage by mutableStateOf("")
+    private var selfTagCount by mutableStateOf(0)
     private var debugInfoDialog: android.app.AlertDialog? = null
     private val debugInfoBuffer = StringBuilder()
     private val debugInfoLock = Any()
@@ -392,7 +393,7 @@ class MainActivity : ComponentActivity() {
                 } else if (pendingNdefWriteRequest != null) {
                     writeToolStatusMessage = uiString(R.string.copy_ndef_in_progress)
                 } else if (pendingClearFuid) {
-                    miscStatusMessage = uiString(R.string.misc_format_ready)
+                    miscStatusMessage = "正在格式化"
                 }
             }
             if (pendingWriteItem != null) {
@@ -446,7 +447,11 @@ class MainActivity : ComponentActivity() {
                     pendingNdefWriteRequest = null
                 }
             } else if (pendingClearFuid) {
-                val result = clearFuidAndResetTag(tag)
+                val result = clearFuidAndResetTag(tag) { status ->
+                    runOnUiThread {
+                        miscStatusMessage = status
+                    }
+                }
                 runOnUiThread {
                     miscStatusMessage = result
                     if (result.contains("成功") || result.contains("success", ignoreCase = true)) {
@@ -518,6 +523,7 @@ class MainActivity : ComponentActivity() {
         filamentDbHelper = FilamentDbHelper(this)
         filamentDbHelper?.let { syncFilamentDatabase(this, it) }
         ensureShareDirectory()
+        refreshSelfTagCount()
         lifecycleScope.launch(Dispatchers.IO) {
             ensureBundledShareDataExtracted()
         }
@@ -591,7 +597,9 @@ class MainActivity : ComponentActivity() {
                         miscStatusMessage = uiString(R.string.misc_cancel_format_task)
                         miscStatusMessage
                     },
+                    onClearSelfTags = { clearSelfTagFiles() },
                     onResetDatabase = { resetDatabase() },
+                    selfTagCount = selfTagCount,
                     miscStatusMessage = miscStatusMessage,
                     onExportTagPackage = {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -1149,6 +1157,7 @@ class MainActivity : ComponentActivity() {
 
             logDebug("全部扇区数据已保存到: ${outputFile.absolutePath}")
             LogCollector.append(this, "I", "全部扇区数据已保存到: ${outputFile.absolutePath}")
+            refreshSelfTagCount()
         } catch (e: Exception) {
             logDebug("保存扇区数据失败: ${e.message}\n${Log.getStackTraceString(e)}")
             LogCollector.append(this, "E", "保存扇区数据失败: ${e.message}")
@@ -1220,6 +1229,35 @@ class MainActivity : ComponentActivity() {
             logDebug("self 目录不可用: ${dir.absolutePath}")
         }
         return null
+    }
+
+    private fun countSelfTagFiles(): Int {
+        val dir = resolveSelfRfidDirectory() ?: return 0
+        return dir.walkTopDown()
+            .count { it.isFile && it.extension.equals("txt", ignoreCase = true) }
+    }
+
+    private fun refreshSelfTagCount() {
+        selfTagCount = countSelfTagFiles()
+    }
+
+    private fun clearSelfTagFiles(): String {
+        val dir = resolveSelfRfidDirectory() ?: return "未找到自有标签目录"
+        return try {
+            var deleted = 0
+            dir.walkTopDown()
+                .filter { it.isFile }
+                .forEach { file ->
+                    if (file.delete()) {
+                        deleted++
+                    }
+                }
+            refreshSelfTagCount()
+            "已清空自有标签，共删除 $deleted 个文件"
+        } catch (e: Exception) {
+            logDebug("清空自有标签失败: ${e.message}")
+            "清空自有标签失败: ${e.message.orEmpty()}"
+        }
     }
 
     private fun ensureDirectoryWritable(dir: File): Boolean {
@@ -1637,7 +1675,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun clearFuidAndResetTag(tag: Tag): String {
+    private fun clearFuidAndResetTag(
+        tag: Tag,
+        onStatusUpdate: ((String) -> Unit)? = null
+    ): String {
         val mifare = MifareClassic.get(tag) ?: return "格式化失败：标签不支持 MIFARE Classic"
         val uid = tag.id ?: return "格式化失败：无法读取UID"
         if (uid.isEmpty()) return "格式化失败：UID为空"
@@ -1728,6 +1769,7 @@ class MainActivity : ComponentActivity() {
 
         return try {
             mifare.connect()
+            onStatusUpdate?.invoke("正在格式化")
             logStep("开始处理 UID=${uid.toHex().uppercase(Locale.US)}")
 
             if (mifare.sectorCount < WRITE_SECTOR_COUNT) {
@@ -1857,6 +1899,7 @@ class MainActivity : ComponentActivity() {
                     logStep("扇区$sector: 区块清零完成")
                 }
                 logStep("已完成数据区块清零（跳过 block0 和 trailer）")
+                onStatusUpdate?.invoke("格式化完成，正在校检")
 
                 val verifyError = runStep3VerifyByFf()
                 if (verifyError == null) {
