@@ -10,6 +10,13 @@ import kotlin.jvm.functions.Function0
 import kotlin.jvm.functions.Function2
 
 object ConfigManager {
+    data class AppLinkConfig(
+        val type: String,
+        val value: String
+    ) {
+        val isUsable: Boolean get() = value.isNotBlank()
+    }
+
     private const val DEFAULT_BOOST_LINK =
         "bambulab://bbl/design/model/detail?design_id=2020787&instance_id=2253290&appSharePlatform=copy"
 
@@ -247,16 +254,69 @@ object ConfigManager {
         return ""
     }
 
-    fun getAppConfigBoostLink(context: Context): String {
+    fun getAppConfigBoostLink(context: Context): AppLinkConfig {
         val configContent = getLocalConfig(context, APP_CONFIG_FILE)
+        val defaultValue = AppLinkConfig(type = "scheme", value = DEFAULT_BOOST_LINK)
         if (configContent != null) {
             try {
                 val json = JSONObject(configContent)
-                return json.optString("boostLink", DEFAULT_BOOST_LINK).ifBlank { DEFAULT_BOOST_LINK }
+                return parseLinkConfig(
+                    json = json,
+                    key = "boostLink",
+                    defaultValue = defaultValue
+                ) ?: defaultValue
             } catch (e: Exception) {
                 com.m0h31h31.bamburfidreader.logDebug("Error parsing AppConfig boostLink: ${e.message}")
             }
         }
-        return DEFAULT_BOOST_LINK
+        return defaultValue
+    }
+
+    fun getAppConfigLogoLinks(context: Context): Map<String, AppLinkConfig> {
+        val configContent = getLocalConfig(context, APP_CONFIG_FILE) ?: return emptyMap()
+        return try {
+            val json = JSONObject(configContent)
+            val logoLinks = json.optJSONObject("logoLinks") ?: return emptyMap()
+            buildMap {
+                val keys = logoLinks.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    parseLinkConfig(logoLinks, key, null)?.let { put(key.lowercase(), it) }
+                }
+            }
+        } catch (e: Exception) {
+            com.m0h31h31.bamburfidreader.logDebug("Error parsing AppConfig logoLinks: ${e.message}")
+            emptyMap()
+        }
+    }
+
+    private fun parseLinkConfig(
+        json: JSONObject,
+        key: String,
+        defaultValue: AppLinkConfig?
+    ): AppLinkConfig? {
+        val rawValue = json.opt(key) ?: return defaultValue
+        return when (rawValue) {
+            is JSONObject -> {
+                val type = rawValue.optString("type", defaultValue?.type ?: "url")
+                val value = rawValue.optString("value", defaultValue?.value.orEmpty())
+                AppLinkConfig(type = type, value = value)
+            }
+
+            is String -> {
+                if (rawValue.isBlank()) {
+                    defaultValue
+                } else {
+                    val inferredType = if ("://" in rawValue && !rawValue.startsWith("http", ignoreCase = true)) {
+                        "scheme"
+                    } else {
+                        "url"
+                    }
+                    AppLinkConfig(type = inferredType, value = rawValue)
+                }
+            }
+
+            else -> defaultValue
+        }
     }
 }

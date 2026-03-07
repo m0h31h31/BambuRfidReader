@@ -1,11 +1,17 @@
 package com.m0h31h31.bamburfidreader.ui.screens
 
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -23,16 +29,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import com.m0h31h31.bamburfidreader.R
 import com.m0h31h31.bamburfidreader.ui.components.NeuButton
 import com.m0h31h31.bamburfidreader.ui.components.NeuPanel
 import com.m0h31h31.bamburfidreader.ui.components.neuBackground
+import com.m0h31h31.bamburfidreader.utils.ConfigManager
 import kotlinx.coroutines.delay
 
 private enum class StatusTone {
@@ -75,7 +85,8 @@ fun MiscScreen(
     onSelectImportTagPackage: () -> String = { "" },
     appConfigMessage: String = "",
     appConfigAdMessage: String = "",
-    boostLink: String = "",
+    boostLink: ConfigManager.AppLinkConfig = ConfigManager.AppLinkConfig("", ""),
+    logoLinks: Map<String, ConfigManager.AppLinkConfig> = emptyMap(),
     readAllSectors: Boolean = false,
     onReadAllSectorsChange: (Boolean) -> Unit = {},
     saveKeysToFile: Boolean = false,
@@ -89,6 +100,9 @@ fun MiscScreen(
 ) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
+    val logoOrder = remember {
+        listOf("makerworld", "douyin", "qq", "gitee", "github")
+    }
     val appVersion = remember(context) {
         runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty()
@@ -153,6 +167,30 @@ fun MiscScreen(
         showImportDatabaseConfirmDialog = false
         message = onImportDatabase()
     }
+
+    val footerLogos = remember(context) {
+        runCatching {
+            context.assets.list("logos")
+                .orEmpty()
+                .sortedWith(
+                    compareBy<String> {
+                        val baseName = it.substringBeforeLast('.').lowercase()
+                        logoOrder.indexOf(baseName).let { index ->
+                            if (index >= 0) index else Int.MAX_VALUE
+                        }
+                    }.thenBy { it.lowercase() }
+                )
+                .mapNotNull { fileName ->
+                    context.assets.open("logos/$fileName").use { input ->
+                        BitmapFactory.decodeStream(input)?.asImageBitmap()?.let { bitmap ->
+                            fileName to bitmap
+                        }
+                    }
+                }
+        }.getOrDefault(emptyList())
+    }
+
+    val logoShape = remember { androidx.compose.foundation.shape.RoundedCornerShape(14.dp) }
 
     Surface(
         modifier = modifier.fillMaxSize().neuBackground(),
@@ -327,12 +365,46 @@ fun MiscScreen(
                 }
             }
 
-            if (boostLink.isNotBlank()) {
+            if (boostLink.isUsable) {
                 NeuButton(
                     text = stringResource(R.string.action_boost_open_bambu),
-                    onClick = { uriHandler.openUri(boostLink) },
+                    onClick = { uriHandler.openUri(boostLink.value) },
                     modifier = Modifier.fillMaxWidth()
                 )
+            }
+
+            if (footerLogos.isNotEmpty()) {
+                NeuPanel(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(15.dp)
+                    ) {
+                        footerLogos.forEach { (fileName, logoBitmap) ->
+                            val logoKey = fileName.substringBeforeLast('.').lowercase()
+                            val linkConfig = logoLinks[logoKey]
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(logoShape)
+                                    .let { base ->
+                                        if (linkConfig?.isUsable == true) {
+                                            base.clickable { uriHandler.openUri(linkConfig.value) }
+                                        } else {
+                                            base
+                                        }
+                                    }
+                            ) {
+                                Image(
+                                    bitmap = logoBitmap,
+                                    contentDescription = fileName,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Fit
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
             if (appConfigMessage.isNotBlank()) {

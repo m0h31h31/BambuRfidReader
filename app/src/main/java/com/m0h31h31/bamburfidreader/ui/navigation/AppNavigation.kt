@@ -220,6 +220,7 @@ fun AppNavigation(
                             val appConfigMessage = ConfigManager.getAppConfigMessage(context)
                             val appConfigAdMessage = ConfigManager.getAppConfigAdMessage(context)
                             val appConfigBoostLink = ConfigManager.getAppConfigBoostLink(context)
+                            val appConfigLogoLinks = ConfigManager.getAppConfigLogoLinks(context)
                             MiscScreen(
                                 onBackupDatabase = onBackupDatabase,
                                 onImportDatabase = onImportDatabase,
@@ -232,6 +233,7 @@ fun AppNavigation(
                                 appConfigMessage = appConfigMessage,
                                 appConfigAdMessage = appConfigAdMessage,
                                 boostLink = appConfigBoostLink,
+                                logoLinks = appConfigLogoLinks,
                                 readAllSectors = readAllSectors,
                                 onReadAllSectorsChange = onReadAllSectorsChange,
                                 saveKeysToFile = saveKeysToFile,
