@@ -166,7 +166,12 @@ object ConfigManager {
                 null
             }
         }
-        return null
+        return try {
+            context.assets.open(fileName).bufferedReader().use { it.readText() }
+        } catch (e: Exception) {
+            com.m0h31h31.bamburfidreader.logDebug("Error reading asset config: $fileName, error: ${e.message}")
+            null
+        }
     }
     
     /**
@@ -222,6 +227,19 @@ object ConfigManager {
                 return json.optString("message", "")
             } catch (e: Exception) {
                 com.m0h31h31.bamburfidreader.logDebug("Error parsing AppConfig: ${e.message}")
+            }
+        }
+        return ""
+    }
+
+    fun getAppConfigBoostLink(context: Context): String {
+        val configContent = getLocalConfig(context, APP_CONFIG_FILE)
+        if (configContent != null) {
+            try {
+                val json = JSONObject(configContent)
+                return json.optString("boostLink", "")
+            } catch (e: Exception) {
+                com.m0h31h31.bamburfidreader.logDebug("Error parsing AppConfig boostLink: ${e.message}")
             }
         }
         return ""

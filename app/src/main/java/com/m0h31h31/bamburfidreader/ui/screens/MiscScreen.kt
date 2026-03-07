@@ -73,6 +73,7 @@ fun MiscScreen(
     onExportTagPackage: () -> String = { "" },
     onSelectImportTagPackage: () -> String = { "" },
     appConfigMessage: String = "",
+    boostLink: String = "",
     readAllSectors: Boolean = false,
     onReadAllSectorsChange: (Boolean) -> Unit = {},
     saveKeysToFile: Boolean = false,
@@ -85,8 +86,6 @@ fun MiscScreen(
     modifier: Modifier = Modifier
 ) {
     val uriHandler = LocalUriHandler.current
-    val boostLink =
-        "bambulab://bbl/design/model/detail?design_id=2020787&instance_id=2253290&appSharePlatform=copy"
     var message by remember { mutableStateOf("") }
     var visibleStatusMessage by remember { mutableStateOf("") }
     var lastMiscStatusMessage by remember { mutableStateOf(miscStatusMessage) }
@@ -151,6 +150,7 @@ fun MiscScreen(
         modifier = modifier.fillMaxSize().neuBackground(),
         color = MaterialTheme.colorScheme.background
     ) {
+        val statusText = visibleStatusMessage.ifBlank { stringResource(R.string.misc_status_idle) }
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -159,24 +159,17 @@ fun MiscScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             val visibleStatusColor = statusToneColor(resolveStatusTone(visibleStatusMessage))
-            if (appConfigMessage.isNotBlank() || visibleStatusMessage.isNotBlank()) {
+            NeuPanel(modifier = Modifier.fillMaxWidth()) {
                 SelectionContainer {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        if (appConfigMessage.isNotBlank()) {
-                            Text(
-                                text = appConfigMessage,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.primary
-                            )
+                    Text(
+                        text = statusText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (visibleStatusMessage.isBlank()) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            visibleStatusColor
                         }
-                        if (visibleStatusMessage.isNotBlank()) {
-                            Text(
-                                text = visibleStatusMessage,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = visibleStatusColor
-                            )
-                        }
-                    }
+                    )
                 }
             }
 
@@ -326,8 +319,29 @@ fun MiscScreen(
                 }
             }
 
-            TextButton(onClick = { uriHandler.openUri(boostLink) }) {
-                Text(text = stringResource(R.string.action_boost_open_bambu))
+            if (boostLink.isNotBlank()) {
+                TextButton(onClick = { uriHandler.openUri(boostLink) }) {
+                    Text(text = stringResource(R.string.action_boost_open_bambu))
+                }
+            }
+
+            if (appConfigMessage.isNotBlank()) {
+                NeuPanel(modifier = Modifier.fillMaxWidth()) {
+                    SelectionContainer {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = stringResource(R.string.misc_notice_title),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = appConfigMessage,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
             }
         }
     }

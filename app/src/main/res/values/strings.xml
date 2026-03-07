@@ -131,6 +131,8 @@
     <string name="misc_export_tag_package">Export Tag Package</string>
     <string name="misc_import_tag_package">Import Tag Package</string>
     <string name="misc_force_overwrite_import">Force overwrite imported tags</string>
+    <string name="misc_status_idle">Waiting for action</string>
+    <string name="misc_notice_title">Notice</string>
     <string name="misc_select_tag_package_canceled">Tag package selection canceled</string>
     <string name="misc_exporting_tag_package">Exporting tag package, please wait...</string>
     <string name="misc_select_tag_package_prompt">Select a tag package to import (.zip)</string>

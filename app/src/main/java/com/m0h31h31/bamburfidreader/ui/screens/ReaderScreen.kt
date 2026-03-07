@@ -758,10 +758,9 @@ private fun QuantityButtonGroup(
 
 
 @Composable
-private fun BoostFooter(modifier: Modifier = Modifier) {
+private fun BoostFooter(boostLink: String, modifier: Modifier = Modifier) {
     val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
-    val boostLink =
-        "bambulab://bbl/design/model/detail?design_id=2020787&instance_id=2253290&appSharePlatform=copy"
+    if (boostLink.isBlank()) return
     TextButton(
         onClick = { uriHandler.openUri(boostLink) },
         modifier = modifier.padding(0.dp)
