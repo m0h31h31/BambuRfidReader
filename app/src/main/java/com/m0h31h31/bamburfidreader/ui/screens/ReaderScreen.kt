@@ -20,8 +20,17 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Button
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -38,6 +48,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.zIndex
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
@@ -64,6 +75,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import kotlin.random.Random
 
 @Composable
 fun ReaderScreen(
@@ -78,9 +90,23 @@ fun ReaderScreen(
     onRemainingChange: (String, Float, Int?) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val meritToastPalette = remember {
+        listOf(
+            Color(0xFFE8F5E9) to Color(0xFF2E7D32),
+            Color(0xFFE3F2FD) to Color(0xFF1565C0),
+            Color(0xFFFFF3E0) to Color(0xFFEF6C00),
+            Color(0xFFFCE4EC) to Color(0xFFC2185B),
+            Color(0xFFEDE7F6) to Color(0xFF5E35B1),
+            Color(0xFFE0F2F1) to Color(0xFF00695C)
+        )
+    }
     val context = LocalContext.current
     var logoTapCount by remember { mutableStateOf(0) }
     var logoLastTapAt by remember { mutableStateOf(0L) }
+    var meritToastVisible by remember { mutableStateOf(false) }
+    var meritToastNonce by remember { mutableStateOf(0) }
+    var meritToastCount by remember { mutableStateOf(0) }
+    var meritToastPaletteIndex by remember { mutableStateOf(0) }
     var showOutboundConfirm by remember(state.trayUidHex) { mutableStateOf(false) }
     val baseLogoTint = state.displayColors.firstNotNullOfOrNull { parseColorValue(it) }
         ?: parseColorValue(state.displayColorCode)
@@ -95,6 +121,30 @@ fun ReaderScreen(
         animationSpec = tween(durationMillis = 550),
         label = "reader_logo_tint"
     )
+    val meritToastShape = RoundedCornerShape(14.dp)
+    val meritToastColors = meritToastPalette[meritToastPaletteIndex]
+    val meritToastBackgroundColor by animateColorAsState(
+        targetValue = meritToastColors.first.copy(alpha = 0.97f),
+        animationSpec = tween(durationMillis = 280),
+        label = "merit_toast_background"
+    )
+    val meritToastTextColor by animateColorAsState(
+        targetValue = meritToastColors.second,
+        animationSpec = tween(durationMillis = 280),
+        label = "merit_toast_text"
+    )
+    val meritToastBorderColor by animateColorAsState(
+        targetValue = meritToastColors.second.copy(alpha = 0.24f),
+        animationSpec = tween(durationMillis = 280),
+        label = "merit_toast_border"
+    )
+    LaunchedEffect(meritToastNonce) {
+        if (meritToastNonce == 0) return@LaunchedEffect
+        meritToastVisible = true
+        delay(720)
+        meritToastVisible = false
+        meritToastCount = 0
+    }
     Surface(
         modifier = modifier.fillMaxSize().neuBackground(),
         color = MaterialTheme.colorScheme.background
@@ -523,12 +573,24 @@ fun ReaderScreen(
                                     )
                                 }
                             }
-                            androidx.compose.foundation.Image(
-                                painter = painterResource(id = R.drawable.logo_mark),
-                                contentDescription = stringResource(R.string.content_logo),
-                                colorFilter = ColorFilter.tint(animatedLogoTintColor),
-                                modifier = Modifier.size(80.dp, 250.dp)
-                            )
+                            Box(
+                                modifier = Modifier.size(88.dp, 250.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                androidx.compose.foundation.Image(
+                                    painter = painterResource(id = R.drawable.logo_mark),
+                                    contentDescription = stringResource(R.string.content_logo),
+                                    colorFilter = ColorFilter.tint(animatedLogoTintColor),
+                                    modifier = Modifier
+                                        .size(80.dp, 250.dp)
+                                        .clickable {
+                                            meritToastVisible = false
+                                            meritToastCount += 1
+                                            meritToastPaletteIndex = Random.nextInt(meritToastPalette.size)
+                                            meritToastNonce += 1
+                                        }
+                                )
+                            }
                         }
                     }
                 }
@@ -538,6 +600,53 @@ fun ReaderScreen(
 //                    .align(Alignment.BottomCenter)
 //                    .padding(horizontal = 2.dp, vertical = 0.dp)
 //            )
+            androidx.compose.animation.AnimatedVisibility(
+                visible = meritToastVisible,
+                enter = fadeIn(
+                    animationSpec = tween(180)
+                ) + scaleIn(
+                    initialScale = 0.86f,
+                    animationSpec = tween(
+                        durationMillis = 260,
+                        easing = FastOutSlowInEasing
+                    )
+                ) + slideInVertically(
+                    initialOffsetY = { it / 2 },
+                    animationSpec = tween(260)
+                ),
+                exit = fadeOut(
+                    animationSpec = tween(150)
+                ) + scaleOut(
+                    targetScale = 0.92f,
+                    animationSpec = tween(150)
+                ) + slideOutVertically(
+                    targetOffsetY = { -it / 3 },
+                    animationSpec = tween(150)
+                ),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 132.dp, end = 18.dp)
+                    .zIndex(10f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(meritToastShape)
+                        .background(meritToastBackgroundColor)
+                        .border(
+                            width = 1.dp,
+                            color = meritToastBorderColor,
+                            shape = meritToastShape
+                        )
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = "功德+${meritToastCount.coerceAtLeast(1)}",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = meritToastTextColor,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
         }
     }
 }

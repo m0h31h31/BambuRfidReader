@@ -1242,11 +1242,7 @@ class MainActivity : ComponentActivity() {
      */
     private fun getDeviceIdSuffix(): String {
         val androidId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
-        val rawId = when {
-            !androidId.isNullOrBlank() -> androidId
-            Build.VERSION.SDK_INT < Build.VERSION_CODES.O -> Build.SERIAL.orEmpty()
-            else -> ""
-        }.ifBlank { "unknown" }
+        val rawId = androidId.orEmpty().ifBlank { "unknown" }
 
         return rawId
             .lowercase(Locale.US)
@@ -2709,12 +2705,9 @@ internal fun syncFilamentDatabase(context: Context, dbHelper: FilamentDbHelper) 
                 values.put("fila_color_code", entry.colorCode)
                 values.put("fila_color_type", entry.colorType)
                 values.put("fila_type", entry.filaType)
-                if (entry is FilamentColorEntry) {
-                    // 如果是 FilamentColorEntry，检查是否有 filaDetailedType 字段
-                    val detailedType = entry.filaDetailedType
-                    if (detailedType.isNotBlank()) {
-                        values.put("fila_detailed_type", detailedType)
-                    }
+                val detailedType = entry.filaDetailedType
+                if (detailedType.isNotBlank()) {
+                    values.put("fila_detailed_type", detailedType)
                 }
                 values.put("color_name_zh", entry.colorNameZh)
                 values.put("color_values", entry.colorValues.joinToString(separator = ","))

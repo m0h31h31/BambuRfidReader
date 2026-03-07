@@ -57,8 +57,67 @@ import com.m0h31h31.bamburfidreader.ui.components.neuBackground
 import com.m0h31h31.bamburfidreader.ui.theme.BambuRfidReaderTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.util.Locale
 
 private val inventoryItemShape = RoundedCornerShape(24.dp)
+
+private fun tokenizeInventorySearchQuery(input: String): List<String> {
+    val tokens = mutableListOf<String>()
+    val buffer = StringBuilder()
+
+    fun charType(c: Char): Int = when {
+        c.isWhitespace() -> 0
+        c.isLetterOrDigit() && c.code < 128 -> 1
+        c.isLetterOrDigit() -> 2
+        else -> 0
+    }
+
+    var lastType = -1
+    for (c in input.trim()) {
+        val type = charType(c)
+        if (type == 0) {
+            if (buffer.isNotEmpty()) {
+                tokens += buffer.toString()
+                buffer.clear()
+            }
+            lastType = -1
+            continue
+        }
+        if (lastType != -1 && type != lastType && buffer.isNotEmpty()) {
+            tokens += buffer.toString()
+            buffer.clear()
+        }
+        buffer.append(c)
+        lastType = type
+    }
+    if (buffer.isNotEmpty()) {
+        tokens += buffer.toString()
+    }
+    return tokens.map { it.lowercase() }.filter { it.isNotBlank() }
+}
+
+private fun matchesInventoryQuery(item: InventoryItem, query: String): Boolean {
+    val tokens = tokenizeInventorySearchQuery(query)
+    if (tokens.isEmpty()) return true
+
+    val fields = buildList {
+        add(item.trayUid)
+        add(item.materialType)
+        add(item.materialDetailedType)
+        add(item.colorName)
+        add(item.colorCode)
+        add(item.colorType)
+        add(item.colorValues.joinToString(separator = ","))
+        add(item.remainingPercent.toString())
+        add(String.format(Locale.ROOT, "%.1f", item.remainingPercent))
+        item.remainingGrams?.let { grams ->
+            add(grams.toString())
+            add("${grams}g")
+        }
+    }.map { it.lowercase() }
+
+    return tokens.all { token -> fields.any { field -> field.contains(token) } }
+}
 
 @Composable
 fun InventoryScreen(
@@ -80,7 +139,9 @@ fun InventoryScreen(
     LaunchedEffect(dbHelper, query, refreshKey, sortByRemaining, sortDescending) {
         val db = dbHelper?.readableDatabase
         val result = if (db != null) {
-            val inventoryItems = dbHelper.queryInventory(db, query)
+            val inventoryItems = dbHelper
+                .getAllInventory(db)
+                .filter { item -> matchesInventoryQuery(item, query) }
             if (sortByRemaining) {
                 if (sortDescending) {
                     // 降序排序：余量从多到少
