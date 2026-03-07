@@ -23,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
@@ -73,6 +74,7 @@ fun MiscScreen(
     onExportTagPackage: () -> String = { "" },
     onSelectImportTagPackage: () -> String = { "" },
     appConfigMessage: String = "",
+    appConfigAdMessage: String = "",
     boostLink: String = "",
     readAllSectors: Boolean = false,
     onReadAllSectorsChange: (Boolean) -> Unit = {},
@@ -85,7 +87,13 @@ fun MiscScreen(
     formatInProgress: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
+    val appVersion = remember(context) {
+        runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty()
+        }.getOrDefault("")
+    }
     var message by remember { mutableStateOf("") }
     var visibleStatusMessage by remember { mutableStateOf("") }
     var lastMiscStatusMessage by remember { mutableStateOf(miscStatusMessage) }
@@ -320,9 +328,11 @@ fun MiscScreen(
             }
 
             if (boostLink.isNotBlank()) {
-                TextButton(onClick = { uriHandler.openUri(boostLink) }) {
-                    Text(text = stringResource(R.string.action_boost_open_bambu))
-                }
+                NeuButton(
+                    text = stringResource(R.string.action_boost_open_bambu),
+                    onClick = { uriHandler.openUri(boostLink) },
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
 
             if (appConfigMessage.isNotBlank()) {
@@ -341,6 +351,35 @@ fun MiscScreen(
                             )
                         }
                     }
+                }
+            }
+
+            if (appConfigAdMessage.isNotBlank()) {
+                NeuPanel(modifier = Modifier.fillMaxWidth()) {
+                    SelectionContainer {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = stringResource(R.string.misc_ad_title),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = appConfigAdMessage,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (appVersion.isNotBlank()) {
+                NeuPanel(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = stringResource(R.string.misc_version_format, appVersion),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }

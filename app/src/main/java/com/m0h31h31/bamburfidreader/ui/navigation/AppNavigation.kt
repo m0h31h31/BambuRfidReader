@@ -218,6 +218,7 @@ fun AppNavigation(
             composable("misc") {
                             val context = LocalContext.current
                             val appConfigMessage = ConfigManager.getAppConfigMessage(context)
+                            val appConfigAdMessage = ConfigManager.getAppConfigAdMessage(context)
                             val appConfigBoostLink = ConfigManager.getAppConfigBoostLink(context)
                             MiscScreen(
                                 onBackupDatabase = onBackupDatabase,
@@ -229,6 +230,7 @@ fun AppNavigation(
                                 onExportTagPackage = onExportTagPackage,
                                 onSelectImportTagPackage = onSelectImportTagPackage,
                                 appConfigMessage = appConfigMessage,
+                                appConfigAdMessage = appConfigAdMessage,
                                 boostLink = appConfigBoostLink,
                                 readAllSectors = readAllSectors,
                                 onReadAllSectorsChange = onReadAllSectorsChange,

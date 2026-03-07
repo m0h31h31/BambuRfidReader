@@ -10,7 +10,9 @@ import kotlin.jvm.functions.Function0
 import kotlin.jvm.functions.Function2
 
 object ConfigManager {
-    
+    private const val DEFAULT_BOOST_LINK =
+        "bambulab://bbl/design/model/detail?design_id=2020787&instance_id=2253290&appSharePlatform=copy"
+
     // 文件路径
     private const val FILAMENTS_COLOR_CODES_FILE = "filaments_color_codes.json"
     private const val APP_CONFIG_FILE = "AppConfig.json"
@@ -232,16 +234,29 @@ object ConfigManager {
         return ""
     }
 
+    fun getAppConfigAdMessage(context: Context): String {
+        val configContent = getLocalConfig(context, APP_CONFIG_FILE)
+        if (configContent != null) {
+            try {
+                val json = JSONObject(configContent)
+                return json.optString("adMessage", "")
+            } catch (e: Exception) {
+                com.m0h31h31.bamburfidreader.logDebug("Error parsing AppConfig adMessage: ${e.message}")
+            }
+        }
+        return ""
+    }
+
     fun getAppConfigBoostLink(context: Context): String {
         val configContent = getLocalConfig(context, APP_CONFIG_FILE)
         if (configContent != null) {
             try {
                 val json = JSONObject(configContent)
-                return json.optString("boostLink", "")
+                return json.optString("boostLink", DEFAULT_BOOST_LINK).ifBlank { DEFAULT_BOOST_LINK }
             } catch (e: Exception) {
                 com.m0h31h31.bamburfidreader.logDebug("Error parsing AppConfig boostLink: ${e.message}")
             }
         }
-        return ""
+        return DEFAULT_BOOST_LINK
     }
 }

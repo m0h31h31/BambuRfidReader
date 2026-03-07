@@ -1,0 +1,180 @@
+<resources>
+    <string name="app_name">Bambu RFID Reader</string>
+    <string name="app_title">Bambu RFID Reader</string>
+    <string name="action_inventory">Inventory</string>
+    <string name="action_voice_settings">Voice Settings</string>
+    <string name="action_back">Back</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_backup_db">Backup Database</string>
+    <string name="action_import_db">Import Database</string>
+    <string name="action_boost_open_bambu">Boost: Open Bambu App</string>
+    <string name="tab_reader">Scan</string>
+    <string name="tab_inventory">Inventory</string>
+    <string name="tab_data">Data</string>
+    <string name="tab_write">Write</string>
+    <string name="tab_tag">Copy</string>
+    <string name="tab_misc">Misc</string>
+
+    <string name="voice_status_prefix">Voice %1$s</string>
+    <string name="voice_status_engine_not_ready">Engine not ready</string>
+    <string name="voice_status_language_unavailable">Language unavailable</string>
+    <string name="voice_status_on">On</string>
+    <string name="voice_status_off">Off</string>
+
+    <string name="label_material_type">Material Type</string>
+    <string name="label_color_name">Color Name</string>
+    <string name="label_color_code">Color Code</string>
+    <string name="label_unknown">Unknown</string>
+    <string name="label_remaining">Remaining</string>
+    <string name="label_other_info">Other Info</string>
+    <string name="unit_grams">g</string>
+
+    <string name="message_tray_uid_missing">Tray UID missing, cannot save remaining.</string>
+    <string name="message_weight_missing">Material weight missing, cannot set grams.</string>
+    <string name="message_weight_missing_short">Weight missing</string>
+
+    <string name="format_percent">%1$d%%</string>
+    <string name="format_percent_decimal">%.1f%%</string>
+    <string name="format_total_weight">Total %1$d g</string>
+
+    <string name="inventory_title">Inventory</string>
+    <string name="inventory_search_placeholder">Search any field</string>
+    <string name="inventory_empty">No inventory data.</string>
+    <string name="inventory_unknown_material">Unknown material</string>
+    <string name="inventory_unknown_color">Unknown color</string>
+    <string name="inventory_color_code_format">Code %1$s</string>
+    <string name="inventory_color_code_unknown">Code unknown</string>
+    <string name="inventory_edit_title">Edit Filament</string>
+    <string name="inventory_remaining_grams_label">Remaining Weight (g)</string>
+    <string name="inventory_sort">Sort</string>
+    <string name="inventory_edit">Edit</string>
+    <string name="inventory_remaining_grams_value">Remaining: %1$sg</string>
+    <string name="inventory_remaining_grams_unknown">Remaining: Unknown</string>
+    <string name="action_confirm">Confirm</string>
+
+    <string name="dialog_delete_title">Confirm Delete</string>
+    <string name="dialog_delete_message">Delete this inventory item?</string>
+
+    <string name="content_logo">Logo</string>
+    <string name="content_logo_mark">Bambu logo</string>
+
+    <string name="reader_outbound">Outbound</string>
+    <string name="reader_recovery">Try Repair</string>
+    <string name="reader_outbound_confirm_title">Confirm Outbound</string>
+    <string name="reader_outbound_confirm_message">Remove this tray UID record?</string>
+    <string name="reader_card_uid">Card UID</string>
+    <string name="reader_merit_format">Merit +%1$d</string>
+
+    <string name="data_grouping">Grouping</string>
+    <string name="data_grouping_detailed">Detailed</string>
+    <string name="data_grouping_simple">Simple</string>
+    <string name="data_merge">Merge</string>
+    <string name="data_switch_on">On</string>
+    <string name="data_switch_off">Off</string>
+    <string name="data_loading">Loading...</string>
+    <string name="data_empty">No data</string>
+    <string name="data_unknown_group">Unknown</string>
+    <string name="data_unknown_color">Unknown color</string>
+    <string name="data_uid_short">UID %1$s</string>
+    <string name="data_close">Close</string>
+    <string name="data_group_title_format">%1$s (%2$d)</string>
+    <string name="data_stack_title_format">%1$s · %2$d</string>
+
+    <string name="tag_search_placeholder">Filter by material/color (supports pla red)</string>
+    <string name="tag_refresh">Refresh</string>
+    <string name="tag_summary_format">Total: %1$d    Filtered: %2$d</string>
+    <string name="tag_uid_color_id_format">UID: %1$s    Color ID: %2$s</string>
+    <string name="tag_loading_shared_data">Loading shared data...</string>
+    <string name="tag_write_notice_title">Before writing, strictly follow these rules:</string>
+    <string name="tag_write_notice_1">1. Keep the tag firmly against the phone NFC area. Do not move it while writing.</string>
+    <string name="tag_write_notice_2">2. After writing completes, remove the tag, then tap it again for verification.</string>
+    <string name="tag_write_notice_3">3. Do not write to an existing tag. Duplicate tags may be recognized as the same spool.</string>
+    <string name="tag_write_notice_4">4. Writing may fail. The author is not responsible for any consequences.</string>
+    <string name="tag_current_selection">Current selection: %1$s</string>
+    <string name="tag_delete_confirm_title">Confirm Delete</string>
+    <string name="tag_delete_confirm_message">Delete tag %1$s?</string>
+    <string name="tag_start_write">Start Writing</string>
+    <string name="tag_cancel_write">Cancel Writing</string>
+    <string name="tag_select_one_first">Select one item first</string>
+    <string name="tag_unknown_color_id">Unknown</string>
+
+    <string name="write_intro">This page is unrelated to filament data. It writes custom data to tags for extra use cases. It can also write other data to official Bambu tags, but you usually need to run Format Tag first.</string>
+    <string name="write_type">Write Type</string>
+    <string name="write_type_text">Text</string>
+    <string name="write_type_url">Web</string>
+    <string name="write_type_phone">Phone</string>
+    <string name="write_text_label">Text Content</string>
+    <string name="write_text_hint">Example: Hello NFC / Device ID / Notes</string>
+    <string name="write_url_label">Website URL</string>
+    <string name="write_url_hint">Example: https://example.com</string>
+    <string name="write_phone_label">Phone Number</string>
+    <string name="write_phone_hint">Example: +8613812345678</string>
+    <string name="write_wifi_ssid">WiFi Name (SSID)</string>
+    <string name="write_wifi_password">WiFi Password</string>
+    <string name="write_wifi_security">Security Type</string>
+    <string name="write_wifi_hint">Hint: fill SSID, password can be empty for open networks, and security can be WPA/WEP/NONE. WiFi will be written as an NDEF text record in WIFI:... format.</string>
+    <string name="write_start">Start Writing (tap tag to run)</string>
+    <string name="write_finish_current_task_first">Finish the current tap task first</string>
+    <string name="write_ndef_ready">NDEF write ready: keep the target tag steady on the NFC area until writing and verification finish.</string>
+
+    <string name="misc_read_all_sectors">Read all sector data and save files</string>
+    <string name="misc_save_keys">Save keys to file</string>
+    <string name="misc_read_all_title">Read All Data Notice</string>
+    <string name="misc_read_all_message">Reading all data will slow scanning down. Files will be saved under Android/data/com.m0h31h31.bamburfidreader/rfid_file/self_xxxxx. Enable it?</string>
+    <string name="misc_import_db_title">Import Database</string>
+    <string name="misc_import_db_message">Importing the database will overwrite the current local filament database. Continue?</string>
+    <string name="misc_confirm_import">Import</string>
+    <string name="misc_format_tag">Format Tag</string>
+    <string name="misc_cancel_format">Cancel Format</string>
+    <string name="misc_format_debug">Show format tag debug info</string>
+    <string name="misc_export_tag_package">Export Tag Package</string>
+    <string name="misc_import_tag_package">Import Tag Package</string>
+    <string name="misc_force_overwrite_import">Force overwrite imported tags</string>
+    <string name="misc_status_idle">Waiting for action</string>
+    <string name="misc_notice_title">Notice</string>
+    <string name="misc_ad_title">Advertisement</string>
+    <string name="misc_version_format">Version: %1$s</string>
+    <string name="misc_select_tag_package_canceled">Tag package selection canceled</string>
+    <string name="misc_exporting_tag_package">Exporting tag package, please wait...</string>
+    <string name="misc_select_tag_package_prompt">Select a tag package to import (.zip)</string>
+    <string name="misc_cancel_format_task">Format task canceled</string>
+    <string name="misc_format_ready">Format ready: keep the target tag steady on the NFC area until completion.</string>
+    <string name="misc_finish_current_write_verify">Finish or cancel the current write/verify task first</string>
+
+    <string name="copy_write_in_progress">Writing in progress. Keep the tag steady on the NFC area.</string>
+    <string name="copy_verify_in_progress">Verifying in progress. Keep the tag steady on the NFC area.</string>
+    <string name="copy_ndef_in_progress">Writing NDEF data. Keep the tag steady on the NFC area.</string>
+    <string name="copy_write_task_empty">Write task is empty</string>
+    <string name="copy_write_done_verify_again">Writing complete. Remove the tag, then tap again to verify.</string>
+    <string name="copy_verify_task_empty">Verify task is empty</string>
+    <string name="copy_ndef_task_empty">NDEF write task is empty</string>
+    <string name="copy_write_stopped_leave_page">Left the copy page. The write task was stopped.</string>
+    <string name="copy_finish_current_task_first">Finish the current tap task first</string>
+    <string name="copy_duplicate_tray_title">Duplicate Tray ID</string>
+    <string name="copy_duplicate_tray_message">Tray ID %1$s already exists in inventory. Continue copying anyway?</string>
+    <string name="copy_continue">Continue Copying</string>
+    <string name="copy_write_ready">Write ready: keep the target blank tag steady on the NFC area until completion.</string>
+    <string name="copy_duplicate_canceled">Canceled: duplicate tray ID detected, writing not started.</string>
+    <string name="copy_recovery_uid_missing">Repair failed: UID not read.</string>
+    <string name="copy_recovery_searching">Trying repair: matching shared file by UID...</string>
+    <string name="copy_recovery_found">Matched file found. Recovery write ready: %1$s</string>
+    <string name="copy_recovery_not_found">No data file found for UID=%1$s. Please choose one manually on the Copy page.</string>
+    <string name="copy_shared_refresh_busy">Shared data is already refreshing. Please wait.</string>
+
+    <string name="inventory_outbound_failed_uid_missing">Outbound failed: tray ID not read.</string>
+    <string name="inventory_outbound_failed_db_unavailable">Outbound failed: database unavailable.</string>
+    <string name="inventory_outbound_success">Outbound successful</string>
+    <string name="inventory_outbound_failed_detail">Outbound failed: %1$s</string>
+
+    <string name="status_device_no_nfc">This device does not support NFC.</string>
+    <string name="status_nfc_disabled">NFC is off. Enable it in system settings.</string>
+    <string name="status_waiting_tag">Waiting for RFID tag</string>
+    <string name="status_uid_missing">UID not found</string>
+    <string name="status_read_success">Read success</string>
+    <string name="status_read_partial">Partial read</string>
+    <string name="status_read_failed">Read failed</string>
+
+    <string name="error_mifare_unsupported">MIFARE Classic not supported</string>
+    <string name="error_read_exception">Read exception</string>
+</resources>
