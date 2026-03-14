@@ -1,5 +1,6 @@
 package com.m0h31h31.bamburfidreader.ui.theme
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
@@ -111,11 +112,16 @@ private val MiuixDarkColors = miuixDarkColorScheme(
 
 @Composable
 fun BambuRfidReaderTheme(
-    darkTheme: Boolean = false,
+    themeMode: ThemeMode = ThemeMode.SYSTEM,
     dynamicColor: Boolean = false,
     uiStyle: AppUiStyle = AppUiStyle.NEUMORPHIC,
     content: @Composable () -> Unit
 ) {
+    val darkTheme = when (themeMode) {
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+        ThemeMode.SYSTEM -> isSystemInDarkTheme()
+    }
     val colorScheme = when (uiStyle) {
         AppUiStyle.NEUMORPHIC -> if (darkTheme) DarkColorScheme else LightColorScheme
         AppUiStyle.MIUIX -> if (darkTheme) MiuixDarkColorScheme else MiuixLightColorScheme

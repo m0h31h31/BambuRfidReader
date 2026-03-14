@@ -12,7 +12,7 @@ object AnalyticsReporter {
     private const val KEY_INSTALL_REPORTED = "install_reported"
 
     suspend fun reportInstallAndLaunch(context: Context) {
-        val endpoint = ConfigManager.getAppConfigUserCountEndpoint(context)?.value.orEmpty()
+        val endpoint = ConfigManager.getAppConfigUserCountEndpoint(context).value
         if (endpoint.isBlank()) return
         val headers = buildMap {
             if (BuildConfig.EVENT_API_KEY.isNotBlank()) {

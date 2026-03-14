@@ -112,6 +112,8 @@ private fun matchesInventoryQuery(item: InventoryItem, query: String): Boolean {
         add(item.colorValues.joinToString(separator = ","))
         add(item.remainingPercent.toString())
         add(String.format(Locale.ROOT, "%.1f", item.remainingPercent))
+        add(item.originalMaterial)
+        add(item.notes)
         item.remainingGrams?.let { grams ->
             add(grams.toString())
             add("${grams}g")
@@ -135,6 +137,8 @@ fun InventoryScreen(
     var editPercent by remember { mutableStateOf(0f) }
     var editGrams by remember { mutableStateOf<Int?>(null) }
     var editTotalGrams by remember { mutableStateOf(0) }
+    var editOriginalMaterial by remember { mutableStateOf("") }
+    var editNotes by remember { mutableStateOf("") }
     var sortByRemaining by remember { mutableStateOf(false) }
     var sortDescending by remember { mutableStateOf(true) }
     val lazyListState = rememberLazyListState()
@@ -273,7 +277,7 @@ fun InventoryScreen(
                             onValueChange = { value ->
                                 val target = pendingEdit
                                 if (target != null && editTotalGrams > 0) {
-                                    val intValue = Math.round(value).toInt().coerceIn(0, editTotalGrams)
+                                    val intValue = Math.round(value).coerceIn(0, editTotalGrams)
                                     editGrams = intValue
                                     editPercent = (intValue * 100f / editTotalGrams)
                                 }
@@ -288,6 +292,20 @@ fun InventoryScreen(
                             modifier = Modifier.padding(start = 8.dp)
                         )
                     }
+                    TextField(
+                        value = editOriginalMaterial,
+                        onValueChange = { editOriginalMaterial = it },
+                        label = { Text(stringResource(R.string.inventory_original_material_label)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    TextField(
+                        value = editNotes,
+                        onValueChange = { editNotes = it },
+                        label = { Text(stringResource(R.string.inventory_notes_label)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             },
             confirmButton = {
@@ -297,13 +315,17 @@ fun InventoryScreen(
                         if (target != null) {
                             val db = dbHelper?.writableDatabase
                             if (db != null) {
-                                // 更新百分比和克重
                                 dbHelper.upsertTrayRemaining(db, target.trayUid, editPercent, editGrams)
+                                dbHelper.upsertTrayNotes(db, target.trayUid, editOriginalMaterial, editNotes)
                             }
-                            // 更新本地列表
-                            items = items.map { 
+                            items = items.map {
                                 if (it.trayUid == target.trayUid) {
-                                    it.copy(remainingPercent = editPercent, remainingGrams = editGrams)
+                                    it.copy(
+                                        remainingPercent = editPercent,
+                                        remainingGrams = editGrams,
+                                        originalMaterial = editOriginalMaterial,
+                                        notes = editNotes
+                                    )
                                 } else {
                                     it
                                 }
@@ -381,6 +403,7 @@ fun InventoryScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(items, key = { it.trayUid }) { item ->
+                        @Suppress("DEPRECATION")
                         val dismissState = rememberSwipeToDismissBoxState(
                             confirmValueChange = { value ->
                                 if (value == SwipeToDismissBoxValue.EndToStart) {
@@ -397,6 +420,8 @@ fun InventoryScreen(
                                     editGrams = item.remainingGrams
                                     // 假设总克重为1000g，实际应用中可能需要从数据库中获取
                                     editTotalGrams = 1000
+                                    editOriginalMaterial = item.originalMaterial
+                                    editNotes = item.notes
                                 }
                                 false
                             } else {
@@ -523,6 +548,15 @@ fun InventoryScreen(
                                                         },
                                                         style = MaterialTheme.typography.bodySmall,
                                                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                                if (item.notes.isNotBlank()) {
+                                                    Text(
+                                                        text = item.notes,
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        maxLines = 1,
+                                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                                     )
                                                 }
                                             }

@@ -53,6 +53,7 @@ import com.m0h31h31.bamburfidreader.ui.navigation.AppNavigation
 import com.m0h31h31.bamburfidreader.ui.screens.NdefWriteRequest
 import com.m0h31h31.bamburfidreader.ui.screens.NdefWriteType
 import com.m0h31h31.bamburfidreader.ui.theme.AppUiStyle
+import com.m0h31h31.bamburfidreader.ui.theme.ThemeMode
 import com.m0h31h31.bamburfidreader.ui.theme.BambuRfidReaderTheme
 import com.m0h31h31.bamburfidreader.util.normalizeColorValue
 import com.m0h31h31.bamburfidreader.utils.AnalyticsReporter
@@ -84,7 +85,7 @@ private const val LOG_TAG = "BambuRfidReader"
 private const val FILAMENT_JSON_NAME = "filaments_color_codes.json"
 private const val FILAMENTS_TYPE_MAPPING_FILE = "filaments_type_mapping.json"
 private const val FILAMENT_DB_NAME = "filaments.db"
-private const val FILAMENT_DB_VERSION = 13
+private const val FILAMENT_DB_VERSION = 14
 private const val FILAMENT_TABLE = "filaments"
 private const val FILAMENT_TYPE_MAPPING_TABLE = "filament_type_mapping"
 private const val FILAMENT_META_TABLE = "meta_v2"
@@ -106,6 +107,8 @@ private const val RW_RECONNECT_DELAY_MS = 35L
 private const val UI_PREFS_NAME = "ui_prefs"
 private const val KEY_VOICE_ENABLED = "voice_enabled"
 private const val KEY_UI_STYLE = "ui_style"
+private const val KEY_THEME_MODE = "theme_mode"
+private const val KEY_INVENTORY_ENABLED = "inventory_enabled"
 private const val KEY_USER_AGREEMENT_VERSION = "user_agreement_version"
 private const val CURRENT_USER_AGREEMENT_VERSION = 1
 private val WRITE_HKDF_SALT = byteArrayOf(
@@ -255,6 +258,8 @@ data class NfcUiState(
     val remainingPercent: Float = DEFAULT_REMAINING_PERCENT.toFloat(),
     val remainingGrams: Int = 0,
     val totalWeightGrams: Int = 0,
+    val originalMaterial: String = "",
+    val notes: String = "",
     val error: String = ""
 )
 
@@ -300,7 +305,9 @@ data class InventoryItem(
     val colorType: String,
     val colorValues: List<String>,
     val remainingPercent: Float,
-    val remainingGrams: Int? = null
+    val remainingGrams: Int? = null,
+    val originalMaterial: String = "",
+    val notes: String = ""
 )
 
 data class ShareTagItem(
@@ -352,10 +359,12 @@ class MainActivity : ComponentActivity() {
     private var filamentDbHelper: FilamentDbHelper? = null
     private var voiceEnabled by mutableStateOf(false)
     private var uiStyle by mutableStateOf(AppUiStyle.NEUMORPHIC)
+    private var themeMode by mutableStateOf(ThemeMode.SYSTEM)
     private var readAllSectors by mutableStateOf(false) // 控制是否读取全部扇区，默认关闭
     private var saveKeysToFile by mutableStateOf(false) // 控制是否额外导出秘钥文件
     private var forceOverwriteImport by mutableStateOf(false) // 控制导入标签包时是否覆盖同UID文件
     private var formatTagDebugEnabled by mutableStateOf(false) // 控制格式化标签调试弹窗
+    private var inventoryEnabled by mutableStateOf(false) // 控制库存和数据页面显示
     private var tts: TextToSpeech? = null
     private var ttsReady by mutableStateOf(false)
     private var ttsLanguageReady by mutableStateOf(false)
@@ -567,36 +576,33 @@ class MainActivity : ComponentActivity() {
     private fun checkAndUpdateConfig() {
         lifecycleScope.launch(Dispatchers.IO) {
             com.m0h31h31.bamburfidreader.utils.ConfigManager.checkAndUpdateConfig(
-                this@MainActivity,
-                object : kotlin.jvm.functions.Function2<String, kotlin.jvm.functions.Function0<Unit>, Unit> {
-                    override fun invoke(message: String, updateAction: kotlin.jvm.functions.Function0<Unit>) {
-                        runOnUiThread {
-                            val builder = android.app.AlertDialog.Builder(this@MainActivity)
-                                .setTitle("配置更新")
-                                .setMessage(message)
-                            
-                            // 检查是否是版本更新提示
-                            if (message == "版本更新请到原地址下载") {
-                                // 版本更新提示只设置取消按钮
-                                builder.setNegativeButton("取消", null)
-                            } else {
-                                // 颜色配置更新需要确认按钮
-                                builder.setPositiveButton("确认") { _, _ ->
-                                    updateAction.invoke()
-                                    // 提示更新结果
-                                    android.app.AlertDialog.Builder(this@MainActivity)
-                                        .setTitle("更新结果")
-                                        .setMessage("颜色配置更新成功")
-                                        .setPositiveButton("确定", null)
-                                        .show()
-                                }
-                                .setNegativeButton("取消", null)
-                            }
-                            builder.show()
+                this@MainActivity
+            ) { message, updateAction ->
+                runOnUiThread {
+                    val builder = android.app.AlertDialog.Builder(this@MainActivity)
+                        .setTitle("配置更新")
+                        .setMessage(message)
+
+                    // 检查是否是版本更新提示
+                    if (message == "版本更新请到原地址下载") {
+                        // 版本更新提示只设置取消按钮
+                        builder.setNegativeButton("取消", null)
+                    } else {
+                        // 颜色配置更新需要确认按钮
+                        builder.setPositiveButton("确认") { _, _ ->
+                            updateAction()
+                            // 提示更新结果
+                            android.app.AlertDialog.Builder(this@MainActivity)
+                                .setTitle("更新结果")
+                                .setMessage("颜色配置更新成功")
+                                .setPositiveButton("确定", null)
+                                .show()
                         }
+                        .setNegativeButton("取消", null)
                     }
+                    builder.show()
                 }
-            )
+            }
         }
     }
 
@@ -605,9 +611,13 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         val uiPrefs = getSharedPreferences(UI_PREFS_NAME, Context.MODE_PRIVATE)
         voiceEnabled = uiPrefs.getBoolean(KEY_VOICE_ENABLED, false)
+        inventoryEnabled = uiPrefs.getBoolean(KEY_INVENTORY_ENABLED, false)
         uiStyle = runCatching {
             AppUiStyle.valueOf(uiPrefs.getString(KEY_UI_STYLE, AppUiStyle.NEUMORPHIC.name).orEmpty())
         }.getOrDefault(AppUiStyle.NEUMORPHIC)
+        themeMode = runCatching {
+            ThemeMode.valueOf(uiPrefs.getString(KEY_THEME_MODE, ThemeMode.SYSTEM.name).orEmpty())
+        }.getOrDefault(ThemeMode.SYSTEM)
         var showUserAgreement by mutableStateOf(
             uiPrefs.getInt(KEY_USER_AGREEMENT_VERSION, 0) < CURRENT_USER_AGREEMENT_VERSION
         )
@@ -634,7 +644,7 @@ class MainActivity : ComponentActivity() {
         checkAndUpdateConfig()
         
         setContent {
-            BambuRfidReaderTheme(uiStyle = uiStyle) {
+            BambuRfidReaderTheme(themeMode = themeMode, uiStyle = uiStyle) {
                 AppNavigation(
                     state = uiState,
                     voiceEnabled = voiceEnabled,
@@ -658,6 +668,11 @@ class MainActivity : ComponentActivity() {
                         uiStyle = it
                         uiPrefs.edit().putString(KEY_UI_STYLE, it.name).apply()
                     },
+                    themeMode = themeMode,
+                    onThemeModeChange = {
+                        themeMode = it
+                        uiPrefs.edit().putString(KEY_THEME_MODE, it.name).apply()
+                    },
                     onReadAllSectorsChange = {
                         readAllSectors = it
                     },
@@ -676,6 +691,14 @@ class MainActivity : ComponentActivity() {
                     },
                     onForceOverwriteImportChange = {
                         forceOverwriteImport = it
+                    },
+                    inventoryEnabled = inventoryEnabled,
+                    onInventoryEnabledChange = { enabled ->
+                        inventoryEnabled = enabled
+                        uiPrefs.edit().putBoolean(KEY_INVENTORY_ENABLED, enabled).apply()
+                    },
+                    onNotesChange = { trayUid, originalMaterial, notes ->
+                        updateTrayNotes(trayUid, originalMaterial, notes)
                     },
                     onTrayOutbound = { trayUid ->
                         removeTrayFromInventory(trayUid)
@@ -696,6 +719,7 @@ class MainActivity : ComponentActivity() {
                         miscStatusMessage
                     },
                     onClearSelfTags = { clearSelfTagFiles() },
+                    onClearShareTags = { clearShareTagFiles() },
                     onResetDatabase = { resetDatabase() },
                     selfTagCount = selfTagCount,
                     miscStatusMessage = miscStatusMessage,
@@ -925,6 +949,18 @@ class MainActivity : ComponentActivity() {
         }
         logDebug("更新耗材余量: $trayUidHex -> $updatedPercent%")
         LogCollector.append(this, "I", "更新耗材余量: $trayUidHex -> $updatedPercent%")
+    }
+
+    private fun updateTrayNotes(trayUidHex: String, originalMaterial: String, notes: String) {
+        if (trayUidHex.isBlank()) return
+        val dbHelper = filamentDbHelper
+        val db = dbHelper?.writableDatabase
+        if (db != null) {
+            dbHelper.upsertTrayNotes(db, trayUidHex, originalMaterial, notes)
+        }
+        if (uiState.trayUidHex == trayUidHex) {
+            uiState = uiState.copy(originalMaterial = originalMaterial, notes = notes)
+        }
     }
 
     private fun removeTrayFromInventory(trayUidHex: String) {
@@ -1368,6 +1404,26 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             logDebug("清空自有标签失败: ${e.message}")
             "清空自有标签失败: ${e.message.orEmpty()}"
+        }
+    }
+
+    private fun clearShareTagFiles(): String {
+        val externalDir = getExternalFilesDir(null) ?: filesDir
+        val shareDir = File(externalDir, "rfid_files/share")
+        if (!shareDir.exists()) return "标签库目录不存在"
+        return try {
+            var deleted = 0
+            shareDir.walkTopDown()
+                .filter { it.isFile }
+                .forEach { file ->
+                    if (file.delete()) {
+                        deleted++
+                    }
+                }
+            "已清空标签库，共删除 $deleted 个文件"
+        } catch (e: Exception) {
+            logDebug("清空标签库失败: ${e.message}")
+            "清空标签库失败: ${e.message.orEmpty()}"
         }
     }
 
@@ -2826,6 +2882,11 @@ class MainActivity : ComponentActivity() {
             logDebug("读取错误: ${rawData.errors.joinToString(separator = "; ")}")
         }
 
+        val extraFields = if (processed.trayUidHex.isNotBlank()) {
+            val db = filamentDbHelper?.readableDatabase
+            db?.let { filamentDbHelper?.getTrayExtraFields(it, processed.trayUidHex) } ?: Pair("", "")
+        } else Pair("", "")
+
         return NfcUiState(
             status = status,
             uidHex = rawData.uidHex,
@@ -2845,6 +2906,8 @@ class MainActivity : ComponentActivity() {
             remainingPercent = processed.remainingPercent,
             remainingGrams = processed.remainingGrams,
             totalWeightGrams = processed.totalWeightGrams,
+            originalMaterial = extraFields.first,
+            notes = extraFields.second,
             error = rawData.errors.joinToString(separator = "; ")
         )
     }
@@ -3134,6 +3197,8 @@ class FilamentDbHelper(context: Context) :
                 color_code TEXT,
                 color_type TEXT,
                 color_values TEXT,
+                original_material TEXT,
+                notes TEXT,
                 FOREIGN KEY (filament_id) REFERENCES $FILAMENT_TABLE(id)
             )
             """.trimIndent()
@@ -3268,6 +3333,11 @@ class FilamentDbHelper(context: Context) :
         if (oldVersion < 13) {
             // 为filament_inventory表添加详细材料类型字段
             addTrayColumn(db, "material_detailed_type", "TEXT")
+        }
+        if (oldVersion < 14) {
+            // 为filament_inventory表添加原始耗材和备注字段
+            addTrayColumn(db, "original_material", "TEXT")
+            addTrayColumn(db, "notes", "TEXT")
         }
     }
 
@@ -3466,7 +3536,7 @@ class FilamentDbHelper(context: Context) :
             selectionArgs = Array(8) { pattern }
         }
         val sql = """
-            SELECT 
+            SELECT
                 tray_uid,
                 material_type,
                 material_detailed_type,
@@ -3475,11 +3545,13 @@ class FilamentDbHelper(context: Context) :
                 color_type,
                 color_values,
                 remaining_percent,
-                remaining_grams
-            FROM 
+                remaining_grams,
+                original_material,
+                notes
+            FROM
                 "$TRAY_UID_TABLE"
             ${if (selection != null) "WHERE $selection" else ""}
-            ORDER BY 
+            ORDER BY
                 tray_uid ASC
         """.trimIndent()
         val cursor = db.rawQuery(sql, selectionArgs)
@@ -3500,7 +3572,9 @@ class FilamentDbHelper(context: Context) :
                         colorType = it.getString(5).orEmpty(),
                         colorValues = colorValues,
                         remainingPercent = it.getFloat(7),
-                        remainingGrams = if (!it.isNull(8)) it.getInt(8) else null
+                        remainingGrams = if (!it.isNull(8)) it.getInt(8) else null,
+                        originalMaterial = it.getString(9).orEmpty(),
+                        notes = it.getString(10).orEmpty()
                     )
                 )
             }
@@ -3513,7 +3587,7 @@ class FilamentDbHelper(context: Context) :
      */
     fun getAllInventory(db: SQLiteDatabase): List<InventoryItem> {
         val sql = """
-            SELECT 
+            SELECT
                 tray_uid,
                 material_type,
                 material_detailed_type,
@@ -3522,10 +3596,12 @@ class FilamentDbHelper(context: Context) :
                 color_type,
                 color_values,
                 remaining_percent,
-                remaining_grams
-            FROM 
+                remaining_grams,
+                original_material,
+                notes
+            FROM
                 "$TRAY_UID_TABLE"
-            ORDER BY 
+            ORDER BY
                 tray_uid ASC
         """.trimIndent()
         val cursor = db.rawQuery(sql, null)
@@ -3546,7 +3622,9 @@ class FilamentDbHelper(context: Context) :
                         colorType = it.getString(5).orEmpty(),
                         colorValues = colorValues,
                         remainingPercent = it.getFloat(7),
-                        remainingGrams = if (!it.isNull(8)) it.getInt(8) else null
+                        remainingGrams = if (!it.isNull(8)) it.getInt(8) else null,
+                        originalMaterial = it.getString(9).orEmpty(),
+                        notes = it.getString(10).orEmpty()
                     )
                 )
             }
@@ -3560,6 +3638,45 @@ class FilamentDbHelper(context: Context) :
             "tray_uid = ?",
             arrayOf(trayUid)
         )
+    }
+
+    fun upsertTrayNotes(
+        db: SQLiteDatabase,
+        trayUid: String,
+        originalMaterial: String,
+        notes: String
+    ) {
+        val values = ContentValues()
+        values.put("original_material", originalMaterial)
+        values.put("notes", notes)
+        val updated = db.update(
+            TRAY_UID_TABLE,
+            values,
+            "tray_uid = ?",
+            arrayOf(trayUid)
+        )
+        if (updated == 0) {
+            values.put("tray_uid", trayUid)
+            values.put("remaining_percent", 100f)
+            db.insertWithOnConflict(TRAY_UID_TABLE, null, values, SQLiteDatabase.CONFLICT_IGNORE)
+        }
+    }
+
+    fun getTrayExtraFields(db: SQLiteDatabase, trayUid: String): Pair<String, String> {
+        val cursor = db.query(
+            TRAY_UID_TABLE,
+            arrayOf("original_material", "notes"),
+            "tray_uid = ?",
+            arrayOf(trayUid),
+            null, null, null
+        )
+        cursor.use {
+            return if (it.moveToFirst()) {
+                Pair(it.getString(0).orEmpty(), it.getString(1).orEmpty())
+            } else {
+                Pair("", "")
+            }
+        }
     }
 
 }

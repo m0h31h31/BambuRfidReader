@@ -20,7 +20,7 @@
     <string name="tab_data">Data</string>
     <string name="tab_write">Write</string>
     <string name="tab_tag">Copy</string>
-    <string name="tab_misc">Misc</string>
+    <string name="tab_misc">Settings</string>
 
     <string name="voice_status_prefix">Voice %1$s</string>
     <string name="voice_status_engine_not_ready">Engine not ready</string>
@@ -128,6 +128,10 @@
     <string name="misc_ui_style">UI style</string>
     <string name="misc_ui_style_neumorphism">Neumorphism</string>
     <string name="misc_ui_style_miuix">MIUIX</string>
+    <string name="misc_theme_mode">Dark Mode</string>
+    <string name="misc_theme_mode_light">Light</string>
+    <string name="misc_theme_mode_dark">Dark</string>
+    <string name="misc_theme_mode_system">Follow System</string>
     <string name="misc_save_keys">Save keys to file</string>
     <string name="misc_read_all_title">Read All Data Notice</string>
     <string name="misc_read_all_message">Reading all data will slow scanning down. Files will be saved under Android/data/com.m0h31h31.bamburfidreader/rfid_file/self_xxxxx. Enable it?</string>
@@ -143,7 +147,16 @@
     <string name="misc_clear_self_tags">Clear Self Tags</string>
     <string name="misc_clear_self_tags_title">Confirm Clear Self Tags</string>
     <string name="misc_clear_self_tags_message">This will delete all tag files under the current self directory and cannot be undone. Continue?</string>
+    <string name="misc_clear_share_tags">Clear Tag Library</string>
+    <string name="misc_clear_share_tags_title">Confirm Clear Tag Library</string>
+    <string name="misc_clear_share_tags_message">This will delete all tag files under the share directory and cannot be undone. Continue?</string>
     <string name="misc_force_overwrite_import">Force overwrite imported tags</string>
+    <string name="config_inventory_feature">Inventory &amp; Data</string>
+    <string name="config_inventory_feature_desc">Show inventory and data pages</string>
+    <string name="reader_original_material">Original Material</string>
+    <string name="reader_notes">Notes</string>
+    <string name="inventory_original_material_label">Original Material</string>
+    <string name="inventory_notes_label">Notes</string>
     <string name="misc_status_idle">Waiting for action</string>
     <string name="misc_notice_title">Notice</string>
     <string name="misc_ad_title">Advertisement</string>

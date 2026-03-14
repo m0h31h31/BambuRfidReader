@@ -20,7 +20,7 @@
     <string name="tab_data">数据</string>
     <string name="tab_write">写入</string>
     <string name="tab_tag">复制</string>
-    <string name="tab_misc">杂项</string>
+    <string name="tab_misc">配置</string>
 
     <string name="voice_status_prefix">语音 %1$s</string>
     <string name="voice_status_engine_not_ready">引擎未就绪</string>
@@ -128,6 +128,10 @@
     <string name="misc_ui_style">界面风格</string>
     <string name="misc_ui_style_neumorphism">新拟态</string>
     <string name="misc_ui_style_miuix">MIUIX</string>
+    <string name="misc_theme_mode">深色模式</string>
+    <string name="misc_theme_mode_light">浅色</string>
+    <string name="misc_theme_mode_dark">深色</string>
+    <string name="misc_theme_mode_system">跟随系统</string>
     <string name="misc_save_keys">保存秘钥到文件</string>
     <string name="misc_read_all_title">读取全部数据提醒</string>
     <string name="misc_read_all_message">读取全部数据会影响读取速度，数据会保存在 Android/data/com.m0h31h31.bamburfidreader/rfid_file/self_xxxxx 下。确定要开启吗？</string>
@@ -143,7 +147,16 @@
     <string name="misc_clear_self_tags">清空自有标签</string>
     <string name="misc_clear_self_tags_title">确认清空自有标签</string>
     <string name="misc_clear_self_tags_message">将删除当前 self 目录下的全部标签文件，此操作不可恢复。确定继续吗？</string>
+    <string name="misc_clear_share_tags">清空标签库</string>
+    <string name="misc_clear_share_tags_title">确认清空标签库</string>
+    <string name="misc_clear_share_tags_message">将删除 share 目录下的全部标签文件，此操作不可恢复。确定继续吗？</string>
     <string name="misc_force_overwrite_import">强制覆盖导入标签</string>
+    <string name="config_inventory_feature">库存与数据功能</string>
+    <string name="config_inventory_feature_desc">显示库存和数据页面</string>
+    <string name="reader_original_material">原始耗材</string>
+    <string name="reader_notes">备注</string>
+    <string name="inventory_original_material_label">原始耗材</string>
+    <string name="inventory_notes_label">备注</string>
     <string name="misc_status_idle">等待操作</string>
     <string name="misc_notice_title">公告</string>
     <string name="misc_ad_title">广告</string>

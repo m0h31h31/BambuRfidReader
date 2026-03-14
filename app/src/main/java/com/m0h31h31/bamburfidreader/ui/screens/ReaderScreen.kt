@@ -79,6 +79,41 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import kotlin.random.Random
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
+import androidx.compose.material3.OutlinedTextField
+
+private const val MERIT_PREFS = "merit_prefs"
+private const val MERIT_KEY_COUNT = "merit_count"
+private const val MERIT_KEY_HMAC = "merit_hmac"
+private val MERIT_HMAC_SECRET = byteArrayOf(
+    0x4d, 0x65, 0x72, 0x69, 0x74, 0x5f, 0x42, 0x61,
+    0x6d, 0x62, 0x75, 0x5f, 0x52, 0x46, 0x49, 0x44
+)
+
+private fun computeMeritHmac(count: Long): String {
+    return try {
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(MERIT_HMAC_SECRET, "HmacSHA256"))
+        mac.doFinal(count.toString().toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+    } catch (_: Exception) { "" }
+}
+
+private fun loadMeritCount(context: android.content.Context): Long {
+    val prefs = context.getSharedPreferences(MERIT_PREFS, android.content.Context.MODE_PRIVATE)
+    val count = prefs.getLong(MERIT_KEY_COUNT, 0L)
+    val storedHmac = prefs.getString(MERIT_KEY_HMAC, "").orEmpty()
+    return if (storedHmac == computeMeritHmac(count)) count else 0L
+}
+
+private fun saveMeritCount(context: android.content.Context, count: Long) {
+    context.getSharedPreferences(MERIT_PREFS, android.content.Context.MODE_PRIVATE)
+        .edit()
+        .putLong(MERIT_KEY_COUNT, count)
+        .putString(MERIT_KEY_HMAC, computeMeritHmac(count))
+        .apply()
+}
 
 @Composable
 fun ReaderScreen(
@@ -91,6 +126,7 @@ fun ReaderScreen(
     showRecoveryAction: Boolean,
     onAttemptRecovery: () -> Unit,
     onRemainingChange: (String, Float, Int?) -> Unit,
+    onNotesChange: (String, String, String) -> Unit = { _, _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val uiStyle = LocalAppUiStyle.current
@@ -116,9 +152,17 @@ fun ReaderScreen(
     var logoLastTapAt by remember { mutableStateOf(0L) }
     var meritToastVisible by remember { mutableStateOf(false) }
     var meritToastNonce by remember { mutableStateOf(0) }
-    var meritToastCount by remember { mutableStateOf(0) }
+    var meritTotal by remember { mutableStateOf(loadMeritCount(context)) }
     var meritToastPaletteIndex by remember { mutableStateOf(0) }
     var showOutboundConfirm by remember(state.trayUidHex) { mutableStateOf(false) }
+    var editOriginalMaterial by remember { mutableStateOf(state.originalMaterial) }
+    var editNotes by remember { mutableStateOf(state.notes) }
+    val notesDebounceJob = remember { mutableStateOf<Job?>(null) }
+    // 扫卡或 UID 切换时，从 state 同步最新的原始耗材与备注（DB 中存储的值）
+    LaunchedEffect(state.trayUidHex, state.originalMaterial, state.notes) {
+        editOriginalMaterial = state.originalMaterial
+        editNotes = state.notes
+    }
     val baseLogoTint = state.displayColors.firstNotNullOfOrNull { parseColorValue(it) }
         ?: parseColorValue(state.displayColorCode)
         ?: MaterialTheme.colorScheme.onSurfaceVariant
@@ -154,7 +198,6 @@ fun ReaderScreen(
         meritToastVisible = true
         delay(720)
         meritToastVisible = false
-        meritToastCount = 0
     }
     Surface(
         modifier = modifier.fillMaxSize().neuBackground(),
@@ -265,7 +308,7 @@ fun ReaderScreen(
                 val percentValue = if (hasWeight) {
                     ((gramsInt * 100f / totalWeight) * 10).roundToInt() / 10f
                 } else {
-                    state.remainingPercent.toFloat()
+                    state.remainingPercent
                 }
                 
                 // 添加防抖机制
@@ -607,6 +650,38 @@ fun ReaderScreen(
                                         inline = true
                                     )
                                 }
+                                if (trayUidAvailable) {
+                                    OutlinedTextField(
+                                        value = editOriginalMaterial,
+                                        onValueChange = { newVal ->
+                                            editOriginalMaterial = newVal
+                                            notesDebounceJob.value?.cancel()
+                                            notesDebounceJob.value = scope.launch {
+                                                delay(500)
+                                                onNotesChange(state.trayUidHex, editOriginalMaterial, editNotes)
+                                            }
+                                        },
+                                        label = { Text(stringResource(R.string.reader_original_material), style = MaterialTheme.typography.labelSmall) },
+                                        singleLine = true,
+                                        textStyle = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    OutlinedTextField(
+                                        value = editNotes,
+                                        onValueChange = { newVal ->
+                                            editNotes = newVal
+                                            notesDebounceJob.value?.cancel()
+                                            notesDebounceJob.value = scope.launch {
+                                                delay(500)
+                                                onNotesChange(state.trayUidHex, editOriginalMaterial, editNotes)
+                                            }
+                                        },
+                                        label = { Text(stringResource(R.string.reader_notes), style = MaterialTheme.typography.labelSmall) },
+                                        singleLine = true,
+                                        textStyle = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
                             }
                             Box(
                                 modifier = Modifier.size(88.dp, 250.dp),
@@ -620,7 +695,8 @@ fun ReaderScreen(
                                         .size(80.dp, 250.dp)
                                         .clickable {
                                             meritToastVisible = false
-                                            meritToastCount += 1
+                                            meritTotal += 1
+                                            saveMeritCount(context, meritTotal)
                                             meritToastPaletteIndex = Random.nextInt(meritToastPalette.size)
                                             meritToastNonce += 1
                                         }
@@ -677,7 +753,7 @@ fun ReaderScreen(
                     Text(
                         text = stringResource(
                             R.string.reader_merit_format,
-                            meritToastCount.coerceAtLeast(1)
+                            meritTotal.coerceAtLeast(1)
                         ),
                         style = MaterialTheme.typography.labelLarge,
                         color = meritToastTextColor,

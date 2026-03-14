@@ -14,6 +14,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.vectorResource
@@ -41,6 +43,7 @@ import com.m0h31h31.bamburfidreader.ui.screens.NdefWriteRequest
 import com.m0h31h31.bamburfidreader.ui.screens.WriteScreen
 import com.m0h31h31.bamburfidreader.ui.theme.AppUiStyle
 import com.m0h31h31.bamburfidreader.ui.theme.LocalAppUiStyle
+import com.m0h31h31.bamburfidreader.ui.theme.ThemeMode
 import com.m0h31h31.bamburfidreader.utils.ConfigManager
 import top.yukonga.miuix.kmp.basic.NavigationBar as MiuixNavigationBar
 import top.yukonga.miuix.kmp.basic.NavigationBarItem as MiuixNavigationBarItem
@@ -72,10 +75,15 @@ fun AppNavigation(
     ttsLanguageReady: Boolean,
     onVoiceEnabledChange: (Boolean) -> Unit,
     onUiStyleChange: (AppUiStyle) -> Unit,
+    themeMode: ThemeMode = ThemeMode.SYSTEM,
+    onThemeModeChange: (ThemeMode) -> Unit = {},
     onReadAllSectorsChange: (Boolean) -> Unit,
     onSaveKeysToFileChange: (Boolean) -> Unit,
     onFormatTagDebugEnabledChange: (Boolean) -> Unit,
     onForceOverwriteImportChange: (Boolean) -> Unit,
+    inventoryEnabled: Boolean = false,
+    onInventoryEnabledChange: (Boolean) -> Unit = {},
+    onNotesChange: (String, String, String) -> Unit = { _, _, _ -> },
     onTrayOutbound: (String) -> Unit,
     onRemainingChange: (String, Float, Int?) -> Unit,
     dbHelper: FilamentDbHelper?,
@@ -84,6 +92,7 @@ fun AppNavigation(
     onClearFuid: () -> String,
     onCancelClearFuid: () -> String,
     onClearSelfTags: () -> String,
+    onClearShareTags: () -> String = { "" },
     onResetDatabase: () -> String,
     selfTagCount: Int,
     miscStatusMessage: String,
@@ -112,7 +121,19 @@ fun AppNavigation(
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
+    val visibleDestinations = remember(inventoryEnabled) {
+        if (inventoryEnabled) topDestinations
+        else topDestinations.filter { it.route != "inventory" && it.route != "data" }
+    }
 
+    LaunchedEffect(inventoryEnabled) {
+        if (!inventoryEnabled && (currentRoute == "inventory" || currentRoute == "data")) {
+            navController.navigate("reader") {
+                popUpTo(navController.graph.findStartDestination().id) { saveState = false }
+                launchSingleTop = true
+            }
+        }
+    }
     LaunchedEffect(currentRoute, writeInProgress) {
         if (currentRoute != "tag" && writeInProgress) {
             onCancelWriteTag()
@@ -150,13 +171,14 @@ fun AppNavigation(
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
             if (resolvedUiStyle == AppUiStyle.MIUIX) {
+                key(inventoryEnabled) {
                 Box(
                     modifier = Modifier
                         .padding(horizontal = 12.dp, vertical = 8.dp)
                         .navigationBarsPadding()
                 ) {
                     MiuixNavigationBar {
-                        topDestinations.forEach { destination ->
+                        visibleDestinations.forEach { destination ->
                             val selected = currentRoute == destination.route
                             val onNavigate = {
                                 navController.navigate(destination.route) {
@@ -178,7 +200,9 @@ fun AppNavigation(
                         }
                     }
                 }
+                } // key
             } else {
+                key(inventoryEnabled) {
                 NeuPanel(
                     modifier = Modifier
                         .padding(horizontal = 12.dp, vertical = 8.dp)
@@ -189,7 +213,7 @@ fun AppNavigation(
                         containerColor = MaterialTheme.colorScheme.surface,
                         tonalElevation = 0.dp
                     ) {
-                        topDestinations.forEach { destination ->
+                        visibleDestinations.forEach { destination ->
                             val selected = currentRoute == destination.route
                             val onNavigate = {
                                 navController.navigate(destination.route) {
@@ -224,6 +248,7 @@ fun AppNavigation(
                         }
                     }
                 }
+                } // key
             }
         }
     ) { innerPadding ->
@@ -244,7 +269,8 @@ fun AppNavigation(
                     onAttemptRecovery = onAttemptRecovery,
                     onRemainingChange = { trayUid, percent, grams ->
                         onRemainingChange(trayUid, percent, grams)
-                    }
+                    },
+                    onNotesChange = onNotesChange
                 )
             }
             composable("inventory") {
@@ -281,11 +307,14 @@ fun AppNavigation(
                             val appConfigBoostLink = ConfigManager.getAppConfigBoostLink(context)
                             val appConfigLogoLinks = ConfigManager.getAppConfigLogoLinks(context)
                             MiscScreen(
+                                inventoryEnabled = inventoryEnabled,
+                                onInventoryEnabledChange = onInventoryEnabledChange,
                                 onBackupDatabase = onBackupDatabase,
                                 onImportDatabase = onImportDatabase,
                                 onClearFuid = onClearFuid,
                                 onCancelClearFuid = onCancelClearFuid,
                                 onClearSelfTags = onClearSelfTags,
+                                onClearShareTags = onClearShareTags,
                                 onResetDatabase = onResetDatabase,
                                 selfTagCount = selfTagCount,
                                 miscStatusMessage = miscStatusMessage,
@@ -297,6 +326,8 @@ fun AppNavigation(
                                 logoLinks = appConfigLogoLinks,
                                 uiStyle = uiStyle,
                                 onUiStyleChange = onUiStyleChange,
+                                themeMode = themeMode,
+                                onThemeModeChange = onThemeModeChange,
                                 readAllSectors = readAllSectors,
                                 onReadAllSectorsChange = onReadAllSectorsChange,
                                 saveKeysToFile = saveKeysToFile,

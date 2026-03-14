@@ -53,6 +53,7 @@ import com.m0h31h31.bamburfidreader.ui.components.AppSwitch
 import com.m0h31h31.bamburfidreader.ui.components.neuBackground
 import com.m0h31h31.bamburfidreader.ui.theme.AppUiStyle
 import com.m0h31h31.bamburfidreader.ui.theme.LocalAppUiStyle
+import com.m0h31h31.bamburfidreader.ui.theme.ThemeMode
 import com.m0h31h31.bamburfidreader.utils.ConfigManager
 import kotlinx.coroutines.delay
 
@@ -110,6 +111,7 @@ fun MiscScreen(
     onClearFuid: () -> String = { "" },
     onCancelClearFuid: () -> String = { "" },
     onClearSelfTags: () -> String = { "" },
+    onClearShareTags: () -> String = { "" },
     onResetDatabase: () -> String = { "" },
     miscStatusMessage: String = "",
     onExportTagPackage: () -> String = { "" },
@@ -121,6 +123,8 @@ fun MiscScreen(
     logoLinks: Map<String, ConfigManager.AppLinkConfig> = emptyMap(),
     uiStyle: AppUiStyle = AppUiStyle.NEUMORPHIC,
     onUiStyleChange: (AppUiStyle) -> Unit = {},
+    themeMode: ThemeMode = ThemeMode.SYSTEM,
+    onThemeModeChange: (ThemeMode) -> Unit = {},
     readAllSectors: Boolean = false,
     onReadAllSectorsChange: (Boolean) -> Unit = {},
     saveKeysToFile: Boolean = false,
@@ -130,6 +134,8 @@ fun MiscScreen(
     forceOverwriteImport: Boolean = false,
     onForceOverwriteImportChange: (Boolean) -> Unit = {},
     formatInProgress: Boolean = false,
+    inventoryEnabled: Boolean = false,
+    onInventoryEnabledChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -165,6 +171,7 @@ fun MiscScreen(
     var showReadAllSectorsDialog by remember { mutableStateOf(false) }
     var showImportDatabaseConfirmDialog by remember { mutableStateOf(false) }
     var showClearSelfTagsConfirmDialog by remember { mutableStateOf(false) }
+    var showClearShareTagsConfirmDialog by remember { mutableStateOf(false) }
     var versionTapCount by rememberSaveable { mutableStateOf(0) }
     var versionEggVisible by remember { mutableStateOf(false) }
     var versionEggNonce by remember { mutableStateOf(0) }
@@ -339,6 +346,54 @@ fun MiscScreen(
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = stringResource(R.string.misc_theme_mode),
+                            modifier = Modifier.weight(1f)
+                        )
+                        val themeModes = listOf(
+                            ThemeMode.LIGHT to stringResource(R.string.misc_theme_mode_light),
+                            ThemeMode.DARK to stringResource(R.string.misc_theme_mode_dark),
+                            ThemeMode.SYSTEM to stringResource(R.string.misc_theme_mode_system)
+                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            themeModes.forEach { (mode, label) ->
+                                val selected = themeMode == mode
+                                Surface(
+                                    shape = MaterialTheme.shapes.extraSmall,
+                                    color = if (selected) {
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                    } else {
+                                        MaterialTheme.colorScheme.surface
+                                    },
+                                    border = if (selected) {
+                                        BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+                                    } else {
+                                        BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+                                    },
+                                    modifier = Modifier.clickable { onThemeModeChange(mode) }
+                                ) {
+                                    Text(
+                                        text = label,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = if (selected) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                     ) {
                         Text(text = stringResource(R.string.misc_read_all_sectors))
@@ -357,6 +412,28 @@ fun MiscScreen(
                         AppSwitch(
                             checked = saveKeysToFile,
                             onCheckedChange = onSaveKeysToFileChange
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(text = stringResource(R.string.config_inventory_feature))
+                            Text(
+                                text = stringResource(R.string.config_inventory_feature_desc),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        AppSwitch(
+                            checked = inventoryEnabled,
+                            onCheckedChange = onInventoryEnabledChange
                         )
                     }
                 }
@@ -429,6 +506,31 @@ fun MiscScreen(
                 )
             }
 
+            if (showClearShareTagsConfirmDialog) {
+                AlertDialog(
+                    onDismissRequest = { showClearShareTagsConfirmDialog = false },
+                    title = { Text(text = stringResource(R.string.misc_clear_share_tags_title)) },
+                    text = {
+                        Text(text = stringResource(R.string.misc_clear_share_tags_message))
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                showClearShareTagsConfirmDialog = false
+                                message = onClearShareTags()
+                            }
+                        ) {
+                            Text(text = stringResource(R.string.action_confirm))
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showClearShareTagsConfirmDialog = false }) {
+                            Text(text = stringResource(R.string.action_cancel))
+                        }
+                    }
+                )
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -491,11 +593,21 @@ fun MiscScreen(
                 )
             }
 
-            NeuButton(
-                text = stringResource(R.string.misc_clear_self_tags),
-                onClick = { showClearSelfTagsConfirmDialog = true },
-                modifier = Modifier.fillMaxWidth()
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                NeuButton(
+                    text = stringResource(R.string.misc_clear_self_tags),
+                    onClick = { showClearSelfTagsConfirmDialog = true },
+                    modifier = Modifier.weight(1f)
+                )
+                NeuButton(
+                    text = stringResource(R.string.misc_clear_share_tags),
+                    onClick = { showClearShareTagsConfirmDialog = true },
+                    modifier = Modifier.weight(1f)
+                )
+            }
 
             NeuPanel(modifier = Modifier.fillMaxWidth()) {
                 Row(

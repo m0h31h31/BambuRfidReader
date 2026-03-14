@@ -7,4 +7,10 @@ enum class AppUiStyle {
     MIUIX
 }
 
+enum class ThemeMode {
+    LIGHT,
+    DARK,
+    SYSTEM
+}
+
 val LocalAppUiStyle = compositionLocalOf { AppUiStyle.NEUMORPHIC }

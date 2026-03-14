@@ -221,6 +221,7 @@ fun TagScreen(
                             } else {
                                 MaterialTheme.colorScheme.onSurfaceVariant
                             }
+                            @Suppress("DEPRECATION")
                             val dismissState = rememberSwipeToDismissBoxState(
                                 confirmValueChange = { value ->
                                     if (value == SwipeToDismissBoxValue.EndToStart) {

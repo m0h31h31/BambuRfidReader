@@ -6,8 +6,6 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
-import kotlin.jvm.functions.Function0
-import kotlin.jvm.functions.Function2
 
 object ConfigManager {
     data class AppLinkConfig(
@@ -39,7 +37,7 @@ object ConfigManager {
     /**
      * 检查并更新配置文件
      */
-    suspend fun checkAndUpdateConfig(context: Context, onUpdateAvailable: Function2<String, Function0<Unit>, Unit>) {
+    suspend fun checkAndUpdateConfig(context: Context, onUpdateAvailable: (String, () -> Unit) -> Unit) {
         withContext(Dispatchers.IO) {
             // 检查AppConfig
             checkAppConfig(context, onUpdateAvailable)
@@ -55,7 +53,7 @@ object ConfigManager {
     /**
      * 检查AppConfig
      */
-    private suspend fun checkAppConfig(context: Context, onUpdateAvailable: Function2<String, Function0<Unit>, Unit>) {
+    private suspend fun checkAppConfig(context: Context, onUpdateAvailable: (String, () -> Unit) -> Unit) {
         try {
             val remoteContent = NetworkUtils.fetchFile(APP_CONFIG_PRIMARY, APP_CONFIG_BACKUP)
             if (remoteContent != null) {
@@ -71,11 +69,7 @@ object ConfigManager {
                 if (remoteVersion != currentVersion && remoteVersion.isNotEmpty()) {
                     // 版本不同，提示用户更新
                     withContext(Dispatchers.Main) {
-                        onUpdateAvailable.invoke("版本更新请到原地址下载", object : Function0<Unit> {
-                            override fun invoke() {
-                                // 空实现，因为只需要取消按钮
-                            }
-                        })
+                        onUpdateAvailable("版本更新请到原地址下载") {}
                     }
                 }
             } else {
@@ -89,7 +83,7 @@ object ConfigManager {
     /**
      * 检查颜色配置文件
      */
-    private suspend fun checkFilamentsColorCodes(context: Context, onUpdateAvailable: Function2<String, Function0<Unit>, Unit>) {
+    private suspend fun checkFilamentsColorCodes(context: Context, onUpdateAvailable: (String, () -> Unit) -> Unit) {
         try {
             val remoteContent = NetworkUtils.fetchFile(FILAMENTS_COLOR_CODES_PRIMARY, FILAMENTS_COLOR_CODES_BACKUP)
             if (remoteContent != null) {
@@ -99,25 +93,16 @@ object ConfigManager {
                 if (remoteHash != localHash) {
                     // 哈希值不同，提示用户更新
                     withContext(Dispatchers.Main) {
-                        onUpdateAvailable.invoke("颜色配置文件有更新，是否更新？", object : Function0<Unit> {
-                            override fun invoke() {
-                                // 用户确认更新
-                                saveFile(context, FILAMENTS_COLOR_CODES_FILE, remoteContent)
-                                // 更新数据库的逻辑
-                                try {
-                                    // 读取更新后的文件内容
-                                    val externalDir = context.getExternalFilesDir(null) ?: context.filesDir
-                                    val updatedFile = File(externalDir, FILAMENTS_COLOR_CODES_FILE)
-                                    val updatedContent = updatedFile.readText()
-                                    // 重新同步数据库
-                                    val dbHelper = com.m0h31h31.bamburfidreader.FilamentDbHelper(context)
-                                    com.m0h31h31.bamburfidreader.syncFilamentDatabase(context, dbHelper)
-                                    com.m0h31h31.bamburfidreader.logDebug("颜色配置文件更新成功，数据库已更新")
-                                } catch (e: Exception) {
-                                    com.m0h31h31.bamburfidreader.logDebug("更新数据库失败: ${e.message}")
-                                }
+                        onUpdateAvailable("颜色配置文件有更新，是否更新？") {
+                            saveFile(context, FILAMENTS_COLOR_CODES_FILE, remoteContent)
+                            try {
+                                val dbHelper = com.m0h31h31.bamburfidreader.FilamentDbHelper(context)
+                                com.m0h31h31.bamburfidreader.syncFilamentDatabase(context, dbHelper)
+                                com.m0h31h31.bamburfidreader.logDebug("颜色配置文件更新成功，数据库已更新")
+                            } catch (e: Exception) {
+                                com.m0h31h31.bamburfidreader.logDebug("更新数据库失败: ${e.message}")
                             }
-                        })
+                        }
                     }
                 }
             } else {
@@ -187,7 +172,7 @@ object ConfigManager {
     /**
      * 检查耗材类型映射文件
      */
-    private suspend fun checkFilamentsTypeMapping(context: Context, onUpdateAvailable: Function2<String, Function0<Unit>, Unit>) {
+    private suspend fun checkFilamentsTypeMapping(context: Context, onUpdateAvailable: (String, () -> Unit) -> Unit) {
         try {
             val remoteContent = NetworkUtils.fetchFile(FILAMENTS_TYPE_MAPPING_PRIMARY, FILAMENTS_TYPE_MAPPING_BACKUP)
             if (remoteContent != null) {
@@ -197,25 +182,16 @@ object ConfigManager {
                 if (remoteHash != localHash) {
                     // 哈希值不同，提示用户更新
                     withContext(Dispatchers.Main) {
-                        onUpdateAvailable.invoke("耗材类型映射文件有更新，是否更新？", object : Function0<Unit> {
-                            override fun invoke() {
-                                // 用户确认更新
-                                saveFile(context, FILAMENTS_TYPE_MAPPING_FILE, remoteContent)
-                                // 更新数据库的逻辑
-                                try {
-                                    // 读取更新后的文件内容
-                                    val externalDir = context.getExternalFilesDir(null) ?: context.filesDir
-                                    val updatedFile = File(externalDir, FILAMENTS_TYPE_MAPPING_FILE)
-                                    val updatedContent = updatedFile.readText()
-                                    // 重新同步数据库
-                                    val dbHelper = com.m0h31h31.bamburfidreader.FilamentDbHelper(context)
-                                    com.m0h31h31.bamburfidreader.syncFilamentDatabase(context, dbHelper)
-                                    com.m0h31h31.bamburfidreader.logDebug("耗材类型映射文件更新成功，数据库已更新")
-                                } catch (e: Exception) {
-                                    com.m0h31h31.bamburfidreader.logDebug("更新数据库失败: ${e.message}")
-                                }
+                        onUpdateAvailable("耗材类型映射文件有更新，是否更新？") {
+                            saveFile(context, FILAMENTS_TYPE_MAPPING_FILE, remoteContent)
+                            try {
+                                val dbHelper = com.m0h31h31.bamburfidreader.FilamentDbHelper(context)
+                                com.m0h31h31.bamburfidreader.syncFilamentDatabase(context, dbHelper)
+                                com.m0h31h31.bamburfidreader.logDebug("耗材类型映射文件更新成功，数据库已更新")
+                            } catch (e: Exception) {
+                                com.m0h31h31.bamburfidreader.logDebug("更新数据库失败: ${e.message}")
                             }
-                        })
+                        }
                     }
                 }
             } else {
