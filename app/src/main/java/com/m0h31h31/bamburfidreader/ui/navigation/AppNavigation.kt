@@ -42,6 +42,7 @@ import com.m0h31h31.bamburfidreader.ui.screens.DataScreen
 import com.m0h31h31.bamburfidreader.ui.screens.NdefWriteRequest
 import com.m0h31h31.bamburfidreader.ui.screens.WriteScreen
 import com.m0h31h31.bamburfidreader.ui.theme.AppUiStyle
+import com.m0h31h31.bamburfidreader.ui.theme.ColorPalette
 import com.m0h31h31.bamburfidreader.ui.theme.LocalAppUiStyle
 import com.m0h31h31.bamburfidreader.ui.theme.ThemeMode
 import com.m0h31h31.bamburfidreader.utils.ConfigManager
@@ -77,6 +78,8 @@ fun AppNavigation(
     onUiStyleChange: (AppUiStyle) -> Unit,
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     onThemeModeChange: (ThemeMode) -> Unit = {},
+    colorPalette: ColorPalette = ColorPalette.OCEAN,
+    onColorPaletteChange: (ColorPalette) -> Unit = {},
     onReadAllSectorsChange: (Boolean) -> Unit,
     onSaveKeysToFileChange: (Boolean) -> Unit,
     onFormatTagDebugEnabledChange: (Boolean) -> Unit,
@@ -339,6 +342,8 @@ fun AppNavigation(
                                 onUiStyleChange = onUiStyleChange,
                                 themeMode = themeMode,
                                 onThemeModeChange = onThemeModeChange,
+                                colorPalette = colorPalette,
+                                onColorPaletteChange = onColorPaletteChange,
                                 readAllSectors = readAllSectors,
                                 onReadAllSectorsChange = onReadAllSectorsChange,
                                 saveKeysToFile = saveKeysToFile,

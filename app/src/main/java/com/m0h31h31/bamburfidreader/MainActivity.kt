@@ -53,6 +53,7 @@ import com.m0h31h31.bamburfidreader.ui.navigation.AppNavigation
 import com.m0h31h31.bamburfidreader.ui.screens.NdefWriteRequest
 import com.m0h31h31.bamburfidreader.ui.screens.NdefWriteType
 import com.m0h31h31.bamburfidreader.ui.theme.AppUiStyle
+import com.m0h31h31.bamburfidreader.ui.theme.ColorPalette
 import com.m0h31h31.bamburfidreader.ui.theme.ThemeMode
 import com.m0h31h31.bamburfidreader.ui.theme.BambuRfidReaderTheme
 import com.m0h31h31.bamburfidreader.util.normalizeColorValue
@@ -113,6 +114,7 @@ private const val KEY_INVENTORY_ENABLED = "inventory_enabled"
 private const val KEY_HIDE_COPIED_TAGS = "hide_copied_tags"
 private const val KEY_DUAL_TAG_MODE = "dual_tag_mode"
 private const val KEY_TAG_VIEW_MODE = "tag_view_mode"
+private const val KEY_COLOR_PALETTE = "color_palette"
 private const val KEY_USER_AGREEMENT_VERSION = "user_agreement_version"
 private const val CURRENT_USER_AGREEMENT_VERSION = 1
 private val WRITE_HKDF_SALT = byteArrayOf(
@@ -387,6 +389,7 @@ class MainActivity : ComponentActivity() {
     private var voiceEnabled by mutableStateOf(false)
     private var uiStyle by mutableStateOf(AppUiStyle.NEUMORPHIC)
     private var themeMode by mutableStateOf(ThemeMode.SYSTEM)
+    private var colorPalette by mutableStateOf(ColorPalette.OCEAN)
     private var readAllSectors by mutableStateOf(false) // 控制是否读取全部扇区，默认关闭
     private var saveKeysToFile by mutableStateOf(false) // 控制是否额外导出秘钥文件
     private var forceOverwriteImport by mutableStateOf(false) // 控制导入标签包时是否覆盖同UID文件
@@ -679,6 +682,9 @@ class MainActivity : ComponentActivity() {
         themeMode = runCatching {
             ThemeMode.valueOf(uiPrefs.getString(KEY_THEME_MODE, ThemeMode.SYSTEM.name).orEmpty())
         }.getOrDefault(ThemeMode.SYSTEM)
+        colorPalette = runCatching {
+            ColorPalette.valueOf(uiPrefs.getString(KEY_COLOR_PALETTE, ColorPalette.OCEAN.name).orEmpty())
+        }.getOrDefault(ColorPalette.OCEAN)
         var showUserAgreement by mutableStateOf(
             uiPrefs.getInt(KEY_USER_AGREEMENT_VERSION, 0) < CURRENT_USER_AGREEMENT_VERSION
         )
@@ -705,7 +711,7 @@ class MainActivity : ComponentActivity() {
         checkAndUpdateConfig()
         
         setContent {
-            BambuRfidReaderTheme(themeMode = themeMode, uiStyle = uiStyle) {
+            BambuRfidReaderTheme(themeMode = themeMode, uiStyle = uiStyle, colorPalette = colorPalette) {
                 AppNavigation(
                     state = uiState,
                     voiceEnabled = voiceEnabled,
@@ -733,6 +739,11 @@ class MainActivity : ComponentActivity() {
                     onThemeModeChange = {
                         themeMode = it
                         uiPrefs.edit().putString(KEY_THEME_MODE, it.name).apply()
+                    },
+                    colorPalette = colorPalette,
+                    onColorPaletteChange = {
+                        colorPalette = it
+                        uiPrefs.edit().putString(KEY_COLOR_PALETTE, it.name).apply()
                     },
                     onReadAllSectorsChange = {
                         readAllSectors = it

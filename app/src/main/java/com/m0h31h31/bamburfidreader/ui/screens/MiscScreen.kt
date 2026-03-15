@@ -53,7 +53,19 @@ import com.m0h31h31.bamburfidreader.ui.components.NeuButton
 import com.m0h31h31.bamburfidreader.ui.components.NeuPanel
 import com.m0h31h31.bamburfidreader.ui.components.AppSwitch
 import com.m0h31h31.bamburfidreader.ui.components.neuBackground
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import com.m0h31h31.bamburfidreader.ui.theme.AppUiStyle
+import com.m0h31h31.bamburfidreader.ui.theme.ColorPalette
 import com.m0h31h31.bamburfidreader.ui.theme.LocalAppUiStyle
 import com.m0h31h31.bamburfidreader.ui.theme.ThemeMode
 import com.m0h31h31.bamburfidreader.utils.ConfigManager
@@ -127,6 +139,8 @@ fun MiscScreen(
     onUiStyleChange: (AppUiStyle) -> Unit = {},
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     onThemeModeChange: (ThemeMode) -> Unit = {},
+    colorPalette: ColorPalette = ColorPalette.OCEAN,
+    onColorPaletteChange: (ColorPalette) -> Unit = {},
     readAllSectors: Boolean = false,
     onReadAllSectorsChange: (Boolean) -> Unit = {},
     saveKeysToFile: Boolean = false,
@@ -176,6 +190,7 @@ fun MiscScreen(
     var adExpanded by remember {
         mutableStateOf(miscPrefs.getBoolean(KEY_AD_EXPANDED, true))
     }
+    var showPaletteDialog by remember { mutableStateOf(false) }
     var showReadAllSectorsDialog by remember { mutableStateOf(false) }
     var showImportDatabaseConfirmDialog by remember { mutableStateOf(false) }
     var showClearSelfTagsConfirmDialog by remember { mutableStateOf(false) }
@@ -397,6 +412,126 @@ fun MiscScreen(
                                 }
                             }
                         }
+                    }
+
+                    // ── Color palette row ─────────────────────────────────────
+                    val allPaletteOptions = listOf(
+                        ColorPalette.ORANGE      to Pair(R.string.palette_orange,      0xFFF99963.toInt()),
+                        ColorPalette.SKY_BLUE    to Pair(R.string.palette_sky_blue,    0xFF56B7E6.toInt()),
+                        ColorPalette.OCEAN       to Pair(R.string.palette_ocean,       0xFF0078BF.toInt()),
+                        ColorPalette.ICE_BLUE    to Pair(R.string.palette_ice_blue,    0xFFA3D8E1.toInt()),
+                        ColorPalette.NIGHT_BLUE  to Pair(R.string.palette_night_blue,  0xFF042F56.toInt()),
+                        ColorPalette.GUN_GRAY    to Pair(R.string.palette_gun_gray,    0xFF757575.toInt()),
+                        ColorPalette.ROCK_GRAY   to Pair(R.string.palette_rock_gray,   0xFF9B9EA0.toInt()),
+                        ColorPalette.FRUIT_GREEN to Pair(R.string.palette_fruit_green, 0xFFC2E189.toInt()),
+                        ColorPalette.GRASS_GREEN to Pair(R.string.palette_grass_green, 0xFF61C680.toInt()),
+                        ColorPalette.NIGHT_GREEN to Pair(R.string.palette_night_green, 0xFF68724D.toInt()),
+                        ColorPalette.CHARCOAL    to Pair(R.string.palette_charcoal,    0xFF000000.toInt()),
+                        ColorPalette.DARK_BROWN  to Pair(R.string.palette_dark_brown,  0xFF4D3324.toInt()),
+                        ColorPalette.LATTE       to Pair(R.string.palette_latte,       0xFFD3B7A7.toInt()),
+                        ColorPalette.NIGHT_BROWN to Pair(R.string.palette_night_brown, 0xFF7D6556.toInt()),
+                        ColorPalette.SAND_BROWN  to Pair(R.string.palette_sand_brown,  0xFFAE835B.toInt()),
+                        ColorPalette.SAKURA      to Pair(R.string.palette_sakura,      0xFFE8AFCF.toInt()),
+                        ColorPalette.LILAC       to Pair(R.string.palette_lilac,       0xFFAE96D4.toInt()),
+                        ColorPalette.CRIMSON     to Pair(R.string.palette_crimson,     0xFFDE4343.toInt()),
+                        ColorPalette.BRICK_RED   to Pair(R.string.palette_brick_red,   0xFFB15533.toInt()),
+                        ColorPalette.BERRY       to Pair(R.string.palette_berry,       0xFF950051.toInt()),
+                        ColorPalette.NIGHT_RED   to Pair(R.string.palette_night_red,   0xFFBB3D43.toInt()),
+                        ColorPalette.IVORY       to Pair(R.string.palette_ivory,       0xFFFFFFFF.toInt()),
+                        ColorPalette.BONE        to Pair(R.string.palette_bone,        0xFFCBC6B8.toInt()),
+                        ColorPalette.LEMON       to Pair(R.string.palette_lemon,       0xFFF7D959.toInt()),
+                        ColorPalette.DESERT      to Pair(R.string.palette_desert,      0xFFE8DBB7.toInt()),
+                    )
+                    val paletteColor = allPaletteOptions
+                        .firstOrNull { it.first == colorPalette }
+                        ?.let { androidx.compose.ui.graphics.Color(it.second.second) }
+                        ?: androidx.compose.ui.graphics.Color(0xFF0078BF.toInt())
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { showPaletteDialog = true },
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = stringResource(R.string.misc_color_palette))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .background(paletteColor, RoundedCornerShape(4.dp))
+                            )
+                            Text(
+                                text = stringResource(
+                                    allPaletteOptions.firstOrNull { it.first == colorPalette }
+                                        ?.second?.first ?: R.string.palette_ocean
+                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    if (showPaletteDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showPaletteDialog = false },
+                            title = { Text(stringResource(R.string.misc_color_palette_dialog_title)) },
+                            text = {
+                                LazyVerticalGrid(
+                                    columns = GridCells.Fixed(5),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier.heightIn(max = 400.dp)
+                                ) {
+                                    items(allPaletteOptions) { (palette, meta) ->
+                                        val (nameRes, colorInt) = meta
+                                        val selected = colorPalette == palette
+                                        val itemColor = androidx.compose.ui.graphics.Color(colorInt)
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                                            modifier = Modifier.clickable {
+                                                onColorPaletteChange(palette)
+                                                showPaletteDialog = false
+                                            }
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .aspectRatio(1f)
+                                                    .background(itemColor, RoundedCornerShape(12.dp))
+                                                    .then(if (selected) Modifier.border(
+                                                        2.dp,
+                                                        MaterialTheme.colorScheme.onSurface,
+                                                        RoundedCornerShape(12.dp)
+                                                    ) else Modifier),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                if (selected) {
+                                                    Icon(
+                                                        imageVector = Icons.Filled.Check,
+                                                        contentDescription = null,
+                                                        tint = androidx.compose.ui.graphics.Color.White,
+                                                        modifier = Modifier.size(22.dp)
+                                                    )
+                                                }
+                                            }
+                                            Text(
+                                                text = stringResource(nameRes),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = if (selected) MaterialTheme.colorScheme.primary
+                                                        else MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                            },
+                            confirmButton = {},
+                            dismissButton = {
+                                TextButton(onClick = { showPaletteDialog = false }) {
+                                    Text(stringResource(R.string.action_cancel))
+                                }
+                            }
+                        )
                     }
 
                     Row(
