@@ -38,6 +38,8 @@ import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -397,7 +399,7 @@ private fun UidSelectionDialog(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun CategoryView(
     categories: List<CategoryGroup>,
@@ -529,6 +531,7 @@ private fun CategoryView(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Preview
 @Composable
 fun TagScreen(
@@ -543,6 +546,7 @@ fun TagScreen(
     onStartWrite: (ShareTagItem) -> Unit = {},
     onDelete: (ShareTagItem) -> String = { "" },
     onCancelWrite: () -> Unit = {},
+    onRefresh: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uiStyle = LocalAppUiStyle.current
@@ -551,6 +555,14 @@ fun TagScreen(
     var selectedFileName by remember { mutableStateOf<String?>(null) }
     var hintMessage by remember { mutableStateOf("") }
     var pendingDeleteItem by remember { mutableStateOf<ShareTagItem?>(null) }
+    var showCuidVipDialog by remember { mutableStateOf(false) }
+    var isRefreshing by remember { mutableStateOf(false) }
+
+    LaunchedEffect(loading) {
+        if (!loading && isRefreshing) {
+            isRefreshing = false
+        }
+    }
 
     var expandedCategoryKeys by rememberSaveable { mutableStateOf(listOf<String>()) }
     var noticesExpanded by rememberSaveable {
@@ -616,7 +628,17 @@ fun TagScreen(
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(6.dp)
             ) {
-                Box(modifier = Modifier.fillMaxSize()) {
+                PullToRefreshBox(
+                    isRefreshing = isRefreshing,
+                    onRefresh = {
+                        if (!isRefreshing && !loading) {
+                            isRefreshing = true
+                            onRefresh()
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
                     if (tagViewMode == "category") {
                         CategoryView(
                             categories = categories,
@@ -660,10 +682,11 @@ fun TagScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             AppCircularProgressIndicator(modifier = Modifier.width(18.dp).height(18.dp))
-                            Text(text = stringResource(R.string.tag_loading_shared_data), fontSize = 11.sp)
+                            Text(text = stringResource(R.string.tag_loading_shared_data), fontSize = 13.sp)
                         }
                     }
-                }
+                } // end Box
+                } // end PullToRefreshBox
             }
 
             // Notice panel with show/hide toggle
@@ -739,6 +762,19 @@ fun TagScreen(
                 )
             }
 
+            if (showCuidVipDialog) {
+                AlertDialog(
+                    onDismissRequest = { showCuidVipDialog = false },
+                    title = { Text(stringResource(R.string.tag_cuid_vip_title)) },
+                    text = { Text(stringResource(R.string.tag_cuid_vip_message)) },
+                    confirmButton = {
+                        TextButton(onClick = { showCuidVipDialog = false }) {
+                            Text(stringResource(R.string.action_confirm))
+                        }
+                    }
+                )
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -759,6 +795,11 @@ fun TagScreen(
                     enabled = writeInProgress,
                     modifier = Modifier.weight(1f)
                 )
+                NeuButton(
+                    text = stringResource(R.string.tag_cuid_change),
+                    onClick = { showCuidVipDialog = true },
+                    modifier = Modifier.weight(1f)
+                )
             }
 
             if (writeStatusMessage.isNotBlank()) {
@@ -770,7 +811,19 @@ fun TagScreen(
                         writeStatusMessage.contains("error", ignoreCase = true) -> MaterialTheme.colorScheme.error
                     else -> MaterialTheme.colorScheme.onSurfaceVariant
                 }
-                Text(text = writeStatusMessage, fontSize = 11.sp, color = statusColor, fontWeight = FontWeight.Bold)
+                val writeInProgress = writeStatusMessage.contains("正在") ||
+                    writeStatusMessage.contains("请稍候") ||
+                    writeStatusMessage.contains("准备就绪") ||
+                    writeStatusMessage.contains("请将目标")
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (writeInProgress) {
+                        AppCircularProgressIndicator(modifier = Modifier.size(15.dp))
+                    }
+                    Text(text = writeStatusMessage, fontSize = 13.sp, color = statusColor, fontWeight = FontWeight.Bold)
+                }
             }
         }
     }

@@ -47,6 +47,7 @@ import com.m0h31h31.bamburfidreader.FilamentDbHelper
 import com.m0h31h31.bamburfidreader.InventoryItem
 import com.m0h31h31.bamburfidreader.ui.components.ColorSwatch
 import com.m0h31h31.bamburfidreader.ui.components.AppSwitch
+import com.m0h31h31.bamburfidreader.ui.components.AppCircularProgressIndicator
 import com.m0h31h31.bamburfidreader.ui.components.NeuPanel
 import com.m0h31h31.bamburfidreader.ui.components.neuBackground
 import com.m0h31h31.bamburfidreader.util.parseColorValue
@@ -239,7 +240,13 @@ fun DataScreen(dbHelper: FilamentDbHelper?, modifier: Modifier = Modifier) {
 
         if (isLoading.value) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(text = stringResource(R.string.data_loading))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    AppCircularProgressIndicator(modifier = Modifier.size(16.dp))
+                    Text(text = stringResource(R.string.data_loading), style = MaterialTheme.typography.bodyMedium)
+                }
             }
         } else if (groupedItems.value.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

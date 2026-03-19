@@ -433,6 +433,7 @@ class MainActivity : ComponentActivity() {
                 miscStatusMessage = uiString(R.string.misc_select_tag_package_canceled)
                 return@registerForActivityResult
             }
+            miscStatusMessage = uiString(R.string.misc_importing_tag_package)
             lifecycleScope.launch(Dispatchers.IO) {
                 val message = importTagPackageFromZipUri(uri)
                 withContext(Dispatchers.Main) {
@@ -644,22 +645,17 @@ class MainActivity : ComponentActivity() {
                         .setTitle("配置更新")
                         .setMessage(message)
 
-                    // 检查是否是版本更新提示
                     if (message == "版本更新请到原地址下载") {
-                        // 版本更新提示只设置取消按钮
-                        builder.setNegativeButton("取消", null)
+                        builder.setPositiveButton("我知道了", null)
                     } else {
-                        // 颜色配置更新需要确认按钮
-                        builder.setPositiveButton("确认") { _, _ ->
+                        builder.setPositiveButton("我知道了") { _, _ ->
                             updateAction()
-                            // 提示更新结果
                             android.app.AlertDialog.Builder(this@MainActivity)
                                 .setTitle("更新结果")
-                                .setMessage("颜色配置更新成功")
-                                .setPositiveButton("确定", null)
+                                .setMessage("配置更新成功")
+                                .setPositiveButton("我知道了", null)
                                 .show()
                         }
-                        .setNegativeButton("取消", null)
                     }
                     builder.show()
                 }
@@ -672,7 +668,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         val uiPrefs = getSharedPreferences(UI_PREFS_NAME, Context.MODE_PRIVATE)
         voiceEnabled = uiPrefs.getBoolean(KEY_VOICE_ENABLED, false)
-        inventoryEnabled = uiPrefs.getBoolean(KEY_INVENTORY_ENABLED, false)
+        inventoryEnabled = uiPrefs.getBoolean(KEY_INVENTORY_ENABLED, true)
         hideCopiedTags = uiPrefs.getBoolean(KEY_HIDE_COPIED_TAGS, true)
         dualTagMode = uiPrefs.getBoolean(KEY_DUAL_TAG_MODE, false)
         tagViewMode = uiPrefs.getString(KEY_TAG_VIEW_MODE, "list") ?: "list"
@@ -1300,6 +1296,14 @@ class MainActivity : ComponentActivity() {
                                 continue
                             }
 
+                            // 校验所有扇区尾块权限位和用户数据是否为 87878769
+                            if (!isValidBambuTag(rawBlocks)) {
+                                invalidCount++
+                                zip.closeEntry()
+                                entry = zip.nextEntry
+                                continue
+                            }
+
                             // 解析预览数据，获取 tray_uid 和颜色信息
                             val preview = NfcTagProcessor.parseForPreview(rawBlocks, filamentDbHelper) { }
                             val trayUid = preview.trayUidHex.trim()
@@ -1507,26 +1511,22 @@ class MainActivity : ComponentActivity() {
 
     private fun clearShareTagFiles(): String {
         // 同时清空 DB 表和本地文件
+        var dbDeleted = 0
         filamentDbHelper?.writableDatabase?.let { db ->
-            filamentDbHelper!!.clearShareTagsTable(db)
+            dbDeleted = filamentDbHelper!!.clearShareTagsTable(db)
         }
         shareTagItems = emptyList()
         val externalDir = getExternalFilesDir(null) ?: filesDir
         val shareDir = File(externalDir, "rfid_files/share")
-        if (!shareDir.exists()) return "标签库已清空"
+        if (!shareDir.exists()) return "已清空标签数据库，共删除 $dbDeleted 条数据"
         return try {
-            var deleted = 0
             shareDir.walkTopDown()
                 .filter { it.isFile }
-                .forEach { file ->
-                    if (file.delete()) {
-                        deleted++
-                    }
-                }
-            "已清空标签库，共删除 $deleted 个文件"
+                .forEach { file -> file.delete() }
+            "已清空标签数据库，共删除 $dbDeleted 条数据"
         } catch (e: Exception) {
-            logDebug("清空标签库失败: ${e.message}")
-            "清空标签库失败: ${e.message.orEmpty()}"
+            logDebug("清空标签数据库失败: ${e.message}")
+            "清空标签数据库失败: ${e.message.orEmpty()}"
         }
     }
 
@@ -1841,6 +1841,40 @@ class MainActivity : ComponentActivity() {
     }
 
     /** 严格校验：必须恰好 64 行，每行恰好 32 个十六进制字符（空格会被跳过计数外）。 */
+    /**
+     * 校验标签合法性：
+     * 1. 所有扇区尾块权限位 + 用户数据字节必须为 87878769。
+     * 2. 使用 block0 前 4 字节作为 UID 派生密钥，校验每个扇区的 KeyA / KeyB。
+     * 尾块布局：KeyA(6B) + AccessBits(3B) + UserByte(1B) + KeyB(6B)
+     */
+    private fun isValidBambuTag(rawBlocks: List<ByteArray?>): Boolean {
+        // 校验 1：权限位和用户数据
+        for (sector in 0 until 16) {
+            val trailer = rawBlocks.getOrNull(sector * 4 + 3) ?: return false
+            if (trailer.size < 16) return false
+            if (trailer[6] != 0x87.toByte() ||
+                trailer[7] != 0x87.toByte() ||
+                trailer[8] != 0x87.toByte() ||
+                trailer[9] != 0x69.toByte()
+            ) return false
+        }
+
+        // 校验 2：使用 UID 派生密钥，逐扇区比对 KeyA 和 KeyB
+        val block0 = rawBlocks.getOrNull(0) ?: return false
+        if (block0.size < 4) return false
+        val uid = block0.copyOfRange(0, 4)
+        val expectedKeys = deriveBambuKeys(uid)
+        for (sector in 0 until 16) {
+            val trailer = rawBlocks[sector * 4 + 3]!!
+            val (expectedKeyA, expectedKeyB) = expectedKeys.getOrNull(sector) ?: return false
+            val actualKeyA = trailer.copyOfRange(0, 6)
+            val actualKeyB = trailer.copyOfRange(10, 16)
+            if (!actualKeyA.contentEquals(expectedKeyA)) return false
+            if (!actualKeyB.contentEquals(expectedKeyB)) return false
+        }
+        return true
+    }
+
     private fun parseHexTagFileStrict(content: String): List<ByteArray?>? {
         val lines = content.trim().lines()
             .map { it.trim() }
@@ -3658,8 +3692,8 @@ class FilamentDbHelper(context: Context) :
         db.delete(SHARE_TAGS_TABLE, "file_uid = ?", arrayOf(fileUid))
     }
 
-    fun clearShareTagsTable(db: SQLiteDatabase) {
-        db.delete(SHARE_TAGS_TABLE, null, null)
+    fun clearShareTagsTable(db: SQLiteDatabase): Int {
+        return db.delete(SHARE_TAGS_TABLE, "1", null)
     }
 
     fun getMetaValue(db: SQLiteDatabase, key: String): String? {

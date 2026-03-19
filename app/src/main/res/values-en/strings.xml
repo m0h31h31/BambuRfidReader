@@ -89,6 +89,8 @@
 
     <string name="tag_search_placeholder">Search any field</string>
     <string name="tag_refresh">Refresh</string>
+    <string name="tag_refreshing">Refreshing...</string>
+    <string name="tag_refresh_done">Updated</string>
     <string name="tag_summary_format">Total: %1$d    Filtered: %2$d</string>
     <string name="tag_uid_color_id_format">UID: %1$s    Color ID: %2$s</string>
     <string name="tag_loading_shared_data">Loading shared data...</string>
@@ -102,6 +104,9 @@
     <string name="tag_delete_confirm_message">Delete tag %1$s?</string>
     <string name="tag_start_write">Start Writing</string>
     <string name="tag_cancel_write">Cancel Writing</string>
+    <string name="tag_cuid_change">CUID Change Card</string>
+    <string name="tag_cuid_vip_title">VIP Feature</string>
+    <string name="tag_cuid_vip_message">You need to recharge 999999999999 yuan to unlock 🤣🤣🤣</string>
     <string name="tag_select_one_first">Select one item first</string>
     <string name="tag_unknown_color_id">Unknown</string>
 
@@ -174,12 +179,12 @@
     <string name="misc_clear_self_tags">Clear Self Tags</string>
     <string name="misc_clear_self_tags_title">Confirm Clear Self Tags</string>
     <string name="misc_clear_self_tags_message">This will delete all tag files under the current self directory and cannot be undone. Continue?</string>
-    <string name="misc_clear_share_tags">Clear Tag Library</string>
-    <string name="misc_clear_share_tags_title">Confirm Clear Tag Library</string>
-    <string name="misc_clear_share_tags_message">This will delete all tag files under the share directory and cannot be undone. Continue?</string>
+    <string name="misc_clear_share_tags">Clear Tag Database</string>
+    <string name="misc_clear_share_tags_title">Confirm Clear Tag Database</string>
+    <string name="misc_clear_share_tags_message">This will remove all tag records from the database and cannot be undone. Continue?</string>
     <string name="misc_force_overwrite_import">Force overwrite imported tags</string>
-    <string name="config_inventory_feature">Inventory &amp; Data</string>
-    <string name="config_inventory_feature_desc">Show inventory and data pages</string>
+    <string name="config_inventory_feature">Hide Inventory &amp; Data</string>
+    <string name="config_inventory_feature_desc">Hide inventory and data pages</string>
     <string name="config_hide_copied_tags">Hide Copied Tags</string>
     <string name="config_hide_copied_tags_desc">Hide tags that have been successfully copied</string>
     <string name="config_dual_tag_mode">Dual-tag Mode</string>
@@ -202,6 +207,7 @@
     <string name="misc_easter_egg_5">Hidden achievement: version inspector</string>
     <string name="misc_select_tag_package_canceled">Tag package selection canceled</string>
     <string name="misc_exporting_tag_package">Exporting tag package, please wait...</string>
+    <string name="misc_importing_tag_package">Importing tag package, please wait...</string>
     <string name="misc_select_tag_package_prompt">Select a tag package to import (.zip)</string>
     <string name="misc_cancel_format_task">Format task canceled</string>
     <string name="misc_format_ready">Format ready: keep the target tag steady on the NFC area until completion.</string>

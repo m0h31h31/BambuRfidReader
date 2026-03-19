@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -30,6 +31,7 @@ import com.m0h31h31.bamburfidreader.R
 import com.m0h31h31.bamburfidreader.ui.components.NeuButton
 import com.m0h31h31.bamburfidreader.ui.components.NeuPanel
 import com.m0h31h31.bamburfidreader.ui.components.NeuTextField
+import com.m0h31h31.bamburfidreader.ui.components.AppCircularProgressIndicator
 import com.m0h31h31.bamburfidreader.ui.components.neuBackground
 
 enum class NdefWriteType {
@@ -203,18 +205,42 @@ fun WriteScreen(
             )
 
             if (statusMessage.isNotBlank()) {
-                Text(
-                    text = statusMessage,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                val statusInProgress = statusMessage.contains("正在") ||
+                    statusMessage.contains("请稍候") ||
+                    statusMessage.contains("准备就绪") ||
+                    statusMessage.contains("请将目标")
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (statusInProgress) {
+                        AppCircularProgressIndicator(modifier = Modifier.size(16.dp))
+                    }
+                    Text(
+                        text = statusMessage,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
             if (pageMessage.isNotBlank()) {
-                Text(
-                    text = pageMessage,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                val pageInProgress = pageMessage.contains("正在") ||
+                    pageMessage.contains("请稍候") ||
+                    pageMessage.contains("准备就绪") ||
+                    pageMessage.contains("请将目标")
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (pageInProgress) {
+                        AppCircularProgressIndicator(modifier = Modifier.size(16.dp))
+                    }
+                    Text(
+                        text = pageMessage,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))

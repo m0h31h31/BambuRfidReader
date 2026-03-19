@@ -305,7 +305,8 @@ fun AppNavigation(
                     tagViewMode = tagViewMode,
                     onStartWrite = onStartWriteTag,
                     onDelete = onDeleteTagItem,
-                    onCancelWrite = onCancelWriteTag
+                    onCancelWrite = onCancelWriteTag,
+                    onRefresh = onTagScreenEnter
                 )
             }
             composable("misc") {

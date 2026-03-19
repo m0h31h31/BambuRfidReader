@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.background
 import android.widget.Toast
@@ -67,6 +68,7 @@ import com.m0h31h31.bamburfidreader.ui.components.ColorSwatch
 import com.m0h31h31.bamburfidreader.ui.components.InfoLine
 import com.m0h31h31.bamburfidreader.ui.components.AppSlider
 import com.m0h31h31.bamburfidreader.ui.components.AppSwitch
+import com.m0h31h31.bamburfidreader.ui.components.AppCircularProgressIndicator
 import com.m0h31h31.bamburfidreader.ui.components.NeuButton
 import com.m0h31h31.bamburfidreader.ui.components.NeuPanel
 import com.m0h31h31.bamburfidreader.ui.components.neuBackground
@@ -247,9 +249,17 @@ fun ReaderScreen(
                                 .padding(horizontal = 12.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            val statusIsWaiting = state.status.contains("正在") ||
+                                state.status.contains("请稍候") ||
+                                state.status.contains("准备就绪") ||
+                                state.status.contains("请将目标")
+                            if (statusIsWaiting) {
+                                AppCircularProgressIndicator(modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                            }
                             Text(
                                 text = state.status,
-                                style = MaterialTheme.typography.bodyMedium,
+                                style = MaterialTheme.typography.bodyLarge,
                                 modifier = Modifier.weight(1f)
                             )
                             val voiceHint = when {
@@ -717,7 +727,10 @@ fun ReaderScreen(
                                     colorFilter = ColorFilter.tint(animatedLogoTintColor),
                                     modifier = Modifier
                                         .size(80.dp, 250.dp)
-                                        .clickable {
+                                        .clickable(
+                                            indication = null,
+                                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                                        ) {
                                             meritToastVisible = false
                                             meritTotal += 1
                                             saveMeritCount(context, meritTotal)

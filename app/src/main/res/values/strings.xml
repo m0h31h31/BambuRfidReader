@@ -89,6 +89,8 @@
 
     <string name="tag_search_placeholder">搜索任意字段</string>
     <string name="tag_refresh">刷新</string>
+    <string name="tag_refreshing">正在更新...</string>
+    <string name="tag_refresh_done">更新完成</string>
     <string name="tag_summary_format">总数：%1$d    当前筛选：%2$d</string>
     <string name="tag_uid_color_id_format">UID：%1$s    颜色ID：%2$s</string>
     <string name="tag_loading_shared_data">正在加载共享数据...</string>
@@ -102,6 +104,9 @@
     <string name="tag_delete_confirm_message">确定删除标签 %1$s 吗？</string>
     <string name="tag_start_write">开始写入</string>
     <string name="tag_cancel_write">取消写入</string>
+    <string name="tag_cuid_change">CUID一键改卡</string>
+    <string name="tag_cuid_vip_title">VIP功能</string>
+    <string name="tag_cuid_vip_message">您需要充值999999999999元开通🤣🤣🤣</string>
     <string name="tag_select_one_first">请先选择一条数据</string>
     <string name="tag_unknown_color_id">未知</string>
 
@@ -174,12 +179,12 @@
     <string name="misc_clear_self_tags">清空自有标签</string>
     <string name="misc_clear_self_tags_title">确认清空自有标签</string>
     <string name="misc_clear_self_tags_message">将删除当前 self 目录下的全部标签文件，此操作不可恢复。确定继续吗？</string>
-    <string name="misc_clear_share_tags">清空标签库</string>
-    <string name="misc_clear_share_tags_title">确认清空标签库</string>
-    <string name="misc_clear_share_tags_message">将删除 share 目录下的全部标签文件，此操作不可恢复。确定继续吗？</string>
+    <string name="misc_clear_share_tags">清空标签数据库</string>
+    <string name="misc_clear_share_tags_title">确认清空标签数据库</string>
+    <string name="misc_clear_share_tags_message">将清空数据库中的全部标签记录，此操作不可恢复。确定继续吗？</string>
     <string name="misc_force_overwrite_import">强制覆盖导入标签</string>
-    <string name="config_inventory_feature">库存与数据功能</string>
-    <string name="config_inventory_feature_desc">显示库存和数据页面</string>
+    <string name="config_inventory_feature">隐藏库存与数据功能</string>
+    <string name="config_inventory_feature_desc">隐藏库存和数据页面</string>
     <string name="config_hide_copied_tags">隐藏已复制标签</string>
     <string name="config_hide_copied_tags_desc">隐藏已成功复制的标签</string>
     <string name="config_dual_tag_mode">双标签模式</string>
@@ -202,6 +207,7 @@
     <string name="misc_easter_egg_5">隐藏成就：认真看版本号</string>
     <string name="misc_select_tag_package_canceled">已取消选择标签包</string>
     <string name="misc_exporting_tag_package">正在打包标签数据，请稍候...</string>
+    <string name="misc_importing_tag_package">正在导入标签数据，请稍候...</string>
     <string name="misc_select_tag_package_prompt">请选择要导入的标签包(.zip)</string>
     <string name="misc_cancel_format_task">已取消格式化任务</string>
     <string name="misc_format_ready">格式化标签准备就绪：请将目标标签紧贴 NFC 区域，保持静止直到完成。</string>

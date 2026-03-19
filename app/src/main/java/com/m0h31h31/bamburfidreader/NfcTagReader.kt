@@ -360,6 +360,15 @@ private fun hkdfExpand(prk: ByteArray, info: ByteArray, length: Int): ByteArray 
     return output.toByteArray().copyOf(length)
 }
 
+/**
+ * 基于 UID 派生全部 16 个扇区的 (KeyA, KeyB) 对，供外部校验使用。
+ */
+fun deriveBambuKeys(uid: ByteArray): List<Pair<ByteArray, ByteArray>> {
+    val keysA = deriveKeys(uid, INFO_A)
+    val keysB = deriveKeys(uid, INFO_B)
+    return keysA.zip(keysB)
+}
+
 // ByteArray 转大写十六进制字符串（不带空格）
 private fun ByteArray.toHex(): String =
     joinToString(separator = "") { "%02X".format(Locale.US, it) }
