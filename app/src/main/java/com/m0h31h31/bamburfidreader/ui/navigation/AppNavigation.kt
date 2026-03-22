@@ -122,6 +122,8 @@ fun AppNavigation(
     onStartWriteTag: (ShareTagItem) -> Unit,
     onDeleteTagItem: (ShareTagItem) -> String,
     onCancelWriteTag: () -> Unit,
+    onStartCModifyTag: (ShareTagItem) -> Unit = {},
+    cModifyInProgress: Boolean = false,
     onStartNdefWrite: (NdefWriteRequest) -> String
 ) {
     val resolvedUiStyle = LocalAppUiStyle.current
@@ -143,6 +145,11 @@ fun AppNavigation(
     }
     LaunchedEffect(currentRoute, writeInProgress) {
         if (currentRoute != "tag" && writeInProgress) {
+            onCancelWriteTag()
+        }
+    }
+    LaunchedEffect(currentRoute, cModifyInProgress) {
+        if (currentRoute != "tag" && cModifyInProgress) {
             onCancelWriteTag()
         }
     }
@@ -306,6 +313,8 @@ fun AppNavigation(
                     onStartWrite = onStartWriteTag,
                     onDelete = onDeleteTagItem,
                     onCancelWrite = onCancelWriteTag,
+                    onStartCModify = onStartCModifyTag,
+                    cModifyInProgress = cModifyInProgress,
                     onRefresh = onTagScreenEnter
                 )
             }

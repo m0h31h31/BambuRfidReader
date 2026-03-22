@@ -102,12 +102,15 @@
     <string name="tag_current_selection">Current selection: %1$s</string>
     <string name="tag_delete_confirm_title">Confirm Delete</string>
     <string name="tag_delete_confirm_message">Delete tag %1$s?</string>
-    <string name="tag_start_write">Start Writing</string>
-    <string name="tag_cancel_write">Cancel Writing</string>
-    <string name="tag_cuid_change">CUID Change Card</string>
+    <string name="tag_start_write">FUID Write</string>
+    <string name="tag_cancel_write">Cancel Write</string>
+    <string name="tag_cancel_c_modify">Cancel Modify</string>
+    <string name="tag_cuid_change">CUID Rewrite</string>
     <string name="tag_cuid_vip_title">VIP Feature</string>
     <string name="tag_cuid_vip_message">You need to recharge 999999999999 yuan to unlock 🤣🤣🤣</string>
     <string name="tag_select_one_first">Select one item first</string>
+    <string name="tag_c_modify_ready">C Card modify ready: keep the target C card steady on the NFC area until complete.</string>
+    <string name="tag_c_modify_in_progress">Modifying C card, keep the tag steady, do not move...</string>
     <string name="tag_unknown_color_id">Unknown</string>
 
     <string name="write_intro">This page is unrelated to filament data. It writes custom data to tags for extra use cases. It can also write other data to official Bambu tags, but you usually need to run Format Tag first.</string>

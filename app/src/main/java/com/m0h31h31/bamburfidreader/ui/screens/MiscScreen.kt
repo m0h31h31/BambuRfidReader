@@ -207,7 +207,7 @@ fun MiscScreen(
         context.getSharedPreferences(MISC_PREFS, android.content.Context.MODE_PRIVATE)
     }
     val logoOrder = remember {
-        listOf("makerworld", "douyin", "qq", "gitee", "github")
+        listOf("makerworld", "xianyu", "douyin", "qq", "gitee", "github")
     }
     val appVersion = remember(context) {
         runCatching {

@@ -86,7 +86,7 @@ private const val LOG_TAG = "BambuRfidReader"
 private const val FILAMENT_JSON_NAME = "filaments_color_codes.json"
 private const val FILAMENTS_TYPE_MAPPING_FILE = "filaments_type_mapping.json"
 private const val FILAMENT_DB_NAME = "filaments.db"
-private const val FILAMENT_DB_VERSION = 16
+private const val FILAMENT_DB_VERSION = 17
 private const val FILAMENT_TABLE = "filaments"
 private const val FILAMENT_TYPE_MAPPING_TABLE = "filament_type_mapping"
 private const val FILAMENT_META_TABLE = "meta_v2"
@@ -333,7 +333,8 @@ data class ShareTagDbRow(
     val colorValues: String?,
     val rawData: String?,
     val copyCount: Int,
-    val verified: Boolean
+    val verified: Boolean,
+    val productionDate: String?
 )
 
 data class ShareTagItem(
@@ -349,7 +350,8 @@ data class ShareTagItem(
     val rawBlocks: List<ByteArray?>,
     val dbId: Long = -1L,
     val copyCount: Int = 0,
-    val verified: Boolean = false
+    val verified: Boolean = false,
+    val productionDate: String = ""
 )
 
 private data class WriteResumePoint(
@@ -411,6 +413,7 @@ class MainActivity : ComponentActivity() {
     private var writeStatusMessage by mutableStateOf("")
     private var pendingWriteItem by mutableStateOf<ShareTagItem?>(null)
     private var pendingVerifyItem by mutableStateOf<ShareTagItem?>(null)
+    private var pendingCModifyItem by mutableStateOf<ShareTagItem?>(null)
     private var pendingClearFuid by mutableStateOf(false)
     private var pendingNdefWriteRequest by mutableStateOf<NdefWriteRequest?>(null)
     private var shareLoading by mutableStateOf(false)
@@ -520,6 +523,8 @@ class MainActivity : ComponentActivity() {
                     writeStatusMessage = uiString(R.string.copy_write_in_progress)
                 } else if (pendingVerifyItem != null) {
                     writeStatusMessage = uiString(R.string.copy_verify_in_progress)
+                } else if (pendingCModifyItem != null) {
+                    writeStatusMessage = uiString(R.string.tag_c_modify_in_progress)
                 } else if (pendingNdefWriteRequest != null) {
                     writeToolStatusMessage = uiString(R.string.copy_ndef_in_progress)
                 } else if (pendingClearFuid) {
@@ -575,6 +580,24 @@ class MainActivity : ComponentActivity() {
                         }
                         pendingVerifyItem = null
                     } else {
+                        playFeedbackTone(FeedbackTone.FAILURE)
+                    }
+                }
+            } else if (pendingCModifyItem != null) {
+                val targetItem = pendingCModifyItem
+                val result = if (targetItem != null) {
+                    writeCModifyTag(tag, targetItem)
+                } else {
+                    "C卡修改任务为空"
+                }
+                runOnUiThread {
+                    if (result.contains("成功")) {
+                        playFeedbackTone(FeedbackTone.SUCCESS)
+                        pendingCModifyItem = null
+                        pendingVerifyItem = targetItem
+                        writeStatusMessage = uiString(R.string.copy_write_done_verify_again)
+                    } else {
+                        writeStatusMessage = result
                         playFeedbackTone(FeedbackTone.FAILURE)
                     }
                 }
@@ -836,6 +859,7 @@ class MainActivity : ComponentActivity() {
                     writeStatusMessage = writeStatusMessage,
                     writeToolStatusMessage = writeToolStatusMessage,
                     writeInProgress = pendingWriteItem != null || pendingVerifyItem != null,
+                    cModifyInProgress = pendingCModifyItem != null,
                     formatInProgress = pendingClearFuid,
                     onTagScreenEnter = {
                         refreshShareTagItemsAsync()
@@ -849,7 +873,11 @@ class MainActivity : ComponentActivity() {
                     onCancelWriteTag = {
                         pendingWriteItem = null
                         pendingVerifyItem = null
+                        pendingCModifyItem = null
                         writeStatusMessage = uiString(R.string.copy_write_stopped_leave_page)
+                    },
+                    onStartCModifyTag = { item ->
+                        enqueueCModifyTask(item)
                     },
                     onStartNdefWrite = { request ->
                         enqueueNdefWriteTask(request)
@@ -903,6 +931,15 @@ class MainActivity : ComponentActivity() {
             pendingVerifyItem = null
             writeStatusMessage = uiString(R.string.copy_write_ready)
         }
+    }
+
+    private fun enqueueCModifyTask(item: ShareTagItem) {
+        if (pendingWriteItem != null || pendingVerifyItem != null || pendingClearFuid || pendingNdefWriteRequest != null) {
+            writeStatusMessage = uiString(R.string.copy_finish_current_task_first)
+            return
+        }
+        pendingCModifyItem = item
+        writeStatusMessage = uiString(R.string.tag_c_modify_ready)
     }
 
     private fun attemptRecoveryFromPartialRead() {
@@ -1324,6 +1361,7 @@ class MainActivity : ComponentActivity() {
                             // 归一化 raw_data 写入 DB
                             val normalized = content.trim().lines()
                                 .map { it.trim() }.filter { it.isNotBlank() }.take(64).joinToString("\n")
+                            val productionDate = extractProductionDate(rawBlocks)
                             dbHelper.insertShareTag(
                                 db,
                                 fileUid = incomingUid,
@@ -1333,7 +1371,8 @@ class MainActivity : ComponentActivity() {
                                 colorName = preview.displayData.colorName.ifBlank { null },
                                 colorType = preview.displayData.colorType.ifBlank { null },
                                 colorValues = preview.displayData.colorValues.joinToString(",").ifBlank { null },
-                                rawData = normalized
+                                rawData = normalized,
+                                productionDate = productionDate
                             )
 
                             extractedCount++
@@ -1684,6 +1723,14 @@ class MainActivity : ComponentActivity() {
             val rawData = row.rawData ?: continue
             val rawBlocks = parseHexTagFileStrict(rawData) ?: continue
             val colorValuesList = row.colorValues?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+            // 若 DB 中尚无生产日期，尝试从 raw_data 提取并回填
+            val productionDate = if (!row.productionDate.isNullOrBlank()) {
+                row.productionDate
+            } else {
+                extractProductionDate(rawBlocks)?.also { date ->
+                    dbHelper.updateShareTagProductionDate(db, row.fileUid, date)
+                }.orEmpty()
+            }
             result.add(
                 ShareTagItem(
                     relativePath = row.fileUid.lowercase(Locale.US),
@@ -1698,7 +1745,8 @@ class MainActivity : ComponentActivity() {
                     rawBlocks = rawBlocks,
                     dbId = row.id,
                     copyCount = row.copyCount,
-                    verified = row.verified
+                    verified = row.verified,
+                    productionDate = productionDate
                 )
             )
         }
@@ -1838,6 +1886,25 @@ class MainActivity : ComponentActivity() {
         cursor.use {
             return it.moveToFirst()
         }
+    }
+
+    /**
+     * 从 block12 提取耗材生产日期，返回 yy-mm-dd 格式，无法解析时返回 null。
+     * block12 原始内容为 ASCII 字符串，格式 YYYY_MM_DD_HH_MM。
+     */
+    private fun extractProductionDate(rawBlocks: List<ByteArray?>): String? {
+        val block = rawBlocks.getOrNull(12) ?: return null
+        if (block.size < 3) return null
+        val trimmed = block.dropLastWhile { it == 0.toByte() || it == 0x20.toByte() }.toByteArray()
+        if (trimmed.isEmpty()) return null
+        if (!trimmed.all { it in 0x20..0x7E }) return null
+        val raw = String(trimmed, Charsets.US_ASCII).trim()
+        val parts = raw.split('_')
+        if (parts.size < 3) return null
+        val year = parts[0]; val month = parts[1]; val day = parts[2]
+        if (!listOf(year, month, day).all { s -> s.all(Char::isDigit) }) return null
+        if (year.length < 2) return null
+        return "${year.takeLast(2)}-${month.padStart(2, '0')}-${day.padStart(2, '0')}"
     }
 
     /** 严格校验：必须恰好 64 行，每行恰好 32 个十六进制字符（空格会被跳过计数外）。 */
@@ -2024,6 +2091,106 @@ class MainActivity : ComponentActivity() {
                 mifare.close()
             } catch (_: Exception) {
             }
+        }
+    }
+
+    /**
+     * 修改C卡：使用目标卡 UID 派生密钥进行认证，将选中标签的 rawBlocks 逐扇区写入目标卡。
+     * 数据块直接来自源标签，sector trailer 也直接来自源标签（已包含源UID派生的密钥）。
+     */
+    /**
+     * CUID改写两阶段流程：
+     * Phase 1 — 用当前卡 UID 派生密钥认证，将各扇区 trailer 权限位还原为 FF 07 80 69（完全可写）。
+     *           Bambu 权限位 87 87 87 69 要求用 KeyB 写 trailer；空卡 FF 07 80 69 用 KeyA 即可。
+     * Phase 2 — 重连后逐扇区写入源数据（含 trailer），完成后由调用方转入校验流程。
+     */
+    private fun writeCModifyTag(tag: Tag, item: ShareTagItem): String {
+        val mifare = MifareClassic.get(tag) ?: return "修改失败：标签不支持 MIFARE Classic"
+        val sourceBlocks = item.rawBlocks
+        if (sourceBlocks.isEmpty()) return "修改失败：源数据为空"
+
+        // 当前卡自身 UID 派生密钥（不使用源标签 UID）
+        val uid = tag.id ?: return "修改失败：无法读取卡 UID"
+        val derivedKeysA = deriveWriteKeys(uid, WRITE_INFO_A)
+        val derivedKeysB = deriveWriteKeys(uid, WRITE_INFO_B)
+        val ffKey = ByteArray(6) { 0xFF.toByte() }
+        // FF 07 80 69 = MIFARE Classic 默认可写权限位
+        val accessDefault = byteArrayOf(0xFF.toByte(), 0x07.toByte(), 0x80.toByte(), 0x69.toByte())
+        val targetSectorCount = minOf(WRITE_SECTOR_COUNT, mifare.sectorCount)
+
+        return try {
+            mifare.connect()
+            Thread.sleep(700)
+
+            // ==== Phase 1: 还原各扇区 trailer 权限位为 FF 07 80 69 ====
+            for (sector in 0 until targetSectorCount) {
+                val keyA = derivedKeysA.getOrNull(sector) ?: return "修改失败：扇区 $sector 派生密钥缺失"
+                val keyB = derivedKeysB.getOrNull(sector) ?: return "修改失败：扇区 $sector 派生密钥缺失"
+                val trailerBlock = mifare.sectorToBlock(sector) + 3
+                // 重置 trailer：保留当前密钥，仅将权限位改为默认可写
+                val resetTrailer = ByteArray(16).also {
+                    System.arraycopy(keyA, 0, it, 0, 6)
+                    System.arraycopy(accessDefault, 0, it, 6, 4)
+                    System.arraycopy(keyB, 0, it, 10, 6)
+                }
+
+                // 先尝试 KeyA 认证（空卡 transport 模式下 KeyA 可写 trailer）
+                var phase1Done = false
+                val authOkA = authenticateSectorWithRetry(
+                    mifare = mifare, sectorIndex = sector,
+                    keysA = listOf(ffKey, keyA), keysB = emptyList()
+                )
+                if (authOkA && writeBlockWithRetry(mifare, trailerBlock, resetTrailer)) {
+                    Thread.sleep(20)
+                    phase1Done = true
+                }
+
+                if (!phase1Done) {
+                    // 回退：用 KeyB 认证（Bambu 权限位 87 87 87 要求 KeyB 才能写 trailer）
+                    reconnectMifareClassic(mifare)
+                    val authOkB = authenticateSectorWithRetry(
+                        mifare = mifare, sectorIndex = sector,
+                        keysA = emptyList(), keysB = listOf(keyB, ffKey)
+                    )
+                    if (!authOkB) return "修改失败：扇区 $sector 阶段1认证失败"
+                    val writeOk = writeBlockWithRetry(mifare, trailerBlock, resetTrailer)
+                    if (!writeOk) return "修改失败：扇区 $sector 还原权限位失败"
+                    Thread.sleep(20)
+                }
+            }
+
+            // ==== Phase 2: 重连，逐扇区写入源数据 ====
+            reconnectMifareClassic(mifare)
+            Thread.sleep(300)
+
+            for (sector in 0 until targetSectorCount) {
+                val keyA = derivedKeysA.getOrNull(sector) ?: return "修改失败：扇区 $sector 派生密钥缺失"
+                val keyB = derivedKeysB.getOrNull(sector) ?: return "修改失败：扇区 $sector 派生密钥缺失"
+                // 权限位已还原为 FF 07 80 69，KeyA 或 FF 均可认证
+                val authOk = authenticateSectorWithRetry(
+                    mifare = mifare, sectorIndex = sector,
+                    keysA = listOf(ffKey, keyA), keysB = listOf(ffKey, keyB)
+                )
+                if (!authOk) return "修改失败：扇区 $sector 阶段2认证失败"
+
+                val startBlock = mifare.sectorToBlock(sector)
+                for (offset in 0 until 4) {
+                    val blockIndex = startBlock + offset
+                    val sourceBlockIndex = sector * 4 + offset
+                    val blockData = sourceBlocks.getOrNull(sourceBlockIndex)
+                        ?: return "修改失败：区块 $sourceBlockIndex 源数据缺失"
+                    if (blockData.size != 16) return "修改失败：区块 $sourceBlockIndex 数据长度异常"
+                    val writeOk = writeBlockWithRetry(mifare, blockIndex, blockData)
+                    if (!writeOk) return "修改失败：区块 $blockIndex 写入失败"
+                    Thread.sleep(20)
+                }
+            }
+
+            "写入成功：已完成全部区块写入"
+        } catch (e: Exception) {
+            "修改失败：${e.message.orEmpty()}"
+        } finally {
+            try { mifare.close() } catch (_: Exception) { }
         }
     }
 
@@ -3414,7 +3581,8 @@ class FilamentDbHelper(context: Context) :
                 color_values TEXT,
                 raw_data TEXT,
                 copy_count INTEGER NOT NULL DEFAULT 0,
-                verified INTEGER NOT NULL DEFAULT 0
+                verified INTEGER NOT NULL DEFAULT 0,
+                production_date TEXT
             )
             """.trimIndent()
         )
@@ -3565,6 +3733,11 @@ class FilamentDbHelper(context: Context) :
                 db.execSQL("ALTER TABLE $SHARE_TAGS_TABLE ADD COLUMN raw_data TEXT")
             } catch (_: Exception) { }
         }
+        if (oldVersion < 17) {
+            try {
+                db.execSQL("ALTER TABLE $SHARE_TAGS_TABLE ADD COLUMN production_date TEXT")
+            } catch (_: Exception) { }
+        }
     }
 
     private fun addTrayColumn(db: SQLiteDatabase, column: String, type: String) {
@@ -3586,7 +3759,8 @@ class FilamentDbHelper(context: Context) :
         colorName: String?,
         colorType: String?,
         colorValues: String?,
-        rawData: String? = null
+        rawData: String? = null,
+        productionDate: String? = null
     ): Long {
         val values = ContentValues()
         values.put("file_uid", fileUid)
@@ -3597,7 +3771,14 @@ class FilamentDbHelper(context: Context) :
         if (!colorType.isNullOrBlank()) values.put("color_type", colorType)
         if (!colorValues.isNullOrBlank()) values.put("color_values", colorValues)
         if (!rawData.isNullOrBlank()) values.put("raw_data", rawData)
+        if (!productionDate.isNullOrBlank()) values.put("production_date", productionDate)
         return db.insertWithOnConflict(SHARE_TAGS_TABLE, null, values, SQLiteDatabase.CONFLICT_IGNORE)
+    }
+
+    fun updateShareTagProductionDate(db: SQLiteDatabase, fileUid: String, productionDate: String) {
+        val values = ContentValues()
+        values.put("production_date", productionDate)
+        db.update(SHARE_TAGS_TABLE, values, "file_uid = ?", arrayOf(fileUid))
     }
 
     fun getShareTagMetaMap(db: SQLiteDatabase): Map<String, ShareTagDbMeta> {
@@ -3623,7 +3804,7 @@ class FilamentDbHelper(context: Context) :
         val result = mutableListOf<ShareTagDbRow>()
         val cursor = db.query(
             SHARE_TAGS_TABLE,
-            arrayOf("id", "file_uid", "tray_uid", "material_type", "color_uid", "color_name", "color_type", "color_values", "raw_data", "copy_count", "verified"),
+            arrayOf("id", "file_uid", "tray_uid", "material_type", "color_uid", "color_name", "color_type", "color_values", "raw_data", "copy_count", "verified", "production_date"),
             null, null, null, null,
             "material_type ASC, color_uid ASC, file_uid ASC"
         )
@@ -3640,7 +3821,8 @@ class FilamentDbHelper(context: Context) :
                     colorValues = it.getString(7),
                     rawData = it.getString(8),
                     copyCount = it.getInt(9),
-                    verified = it.getInt(10) != 0
+                    verified = it.getInt(10) != 0,
+                    productionDate = it.getString(11)
                 ))
             }
         }

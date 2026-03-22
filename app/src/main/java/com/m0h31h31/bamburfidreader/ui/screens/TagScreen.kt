@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,6 +26,8 @@ import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -215,7 +218,15 @@ private fun TagListItem(
                 Box(modifier = Modifier.width(4.dp).height(36.dp).clip(RoundedCornerShape(999.dp))
                     .background(if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(item.materialType.ifBlank { unknownText }, style = MaterialTheme.typography.bodyMedium, color = titleColor)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(item.materialType.ifBlank { unknownText }, style = MaterialTheme.typography.bodyMedium, color = titleColor)
+                        if (item.productionDate.isNotBlank()) {
+                            Text(item.productionDate, fontSize = 10.sp, color = subtitleColor)
+                        }
+                    }
                     Text(
                         text = stringResource(R.string.tag_uid_color_id_format, item.sourceUid, item.colorUid.ifBlank { unknownColorIdText }),
                         fontSize = 12.sp, color = subtitleColor
@@ -358,32 +369,53 @@ private fun UidSelectionDialog(
                 }
 
                 // UID chips in FlowRow
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                val sortedItems = remember(group.items) {
+                    group.items.sortedByDescending { it.productionDate.ifBlank { "" } }
+                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 200.dp)
+                        .verticalScroll(rememberScrollState())
                 ) {
-                    group.items.forEach { item ->
-                        val selected = item.relativePath == selectedRelativePath
-                        val chipBg = if (selected) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.surfaceVariant
-                        val chipText = if (selected) MaterialTheme.colorScheme.onPrimary
-                        else MaterialTheme.colorScheme.onSurfaceVariant
-                        Box(
-                            modifier = Modifier
-                                .background(chipBg, RoundedCornerShape(6.dp))
-                                .clickable {
-                                    onSelect(item)
-                                    onDismiss()
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        sortedItems.forEach { item ->
+                            val selected = item.relativePath == selectedRelativePath
+                            val chipBg = if (selected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.surfaceVariant
+                            val chipText = if (selected) MaterialTheme.colorScheme.onPrimary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                            Box(
+                                modifier = Modifier
+                                    .background(chipBg, RoundedCornerShape(6.dp))
+                                    .clickable {
+                                        onSelect(item)
+                                        onDismiss()
+                                    }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(
+                                        text = item.sourceUid,
+                                        fontSize = 11.sp,
+                                        color = chipText,
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                        lineHeight = 13.sp
+                                    )
+                                    if (item.productionDate.isNotBlank()) {
+                                        Text(
+                                            text = item.productionDate,
+                                            fontSize = 9.sp,
+                                            color = chipText.copy(alpha = 0.75f),
+                                            lineHeight = 11.sp
+                                        )
+                                    }
                                 }
-                                .padding(horizontal = 8.dp, vertical = 5.dp)
-                        ) {
-                            Text(
-                                text = item.sourceUid,
-                                fontSize = 11.sp,
-                                color = chipText,
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
-                            )
+                            }
                         }
                     }
                 }
@@ -546,6 +578,8 @@ fun TagScreen(
     onStartWrite: (ShareTagItem) -> Unit = {},
     onDelete: (ShareTagItem) -> String = { "" },
     onCancelWrite: () -> Unit = {},
+    onStartCModify: (ShareTagItem) -> Unit = {},
+    cModifyInProgress: Boolean = false,
     onRefresh: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -555,7 +589,6 @@ fun TagScreen(
     var selectedFileName by remember { mutableStateOf<String?>(null) }
     var hintMessage by remember { mutableStateOf("") }
     var pendingDeleteItem by remember { mutableStateOf<ShareTagItem?>(null) }
-    var showCuidVipDialog by remember { mutableStateOf(false) }
     var isRefreshing by remember { mutableStateOf(false) }
 
     LaunchedEffect(loading) {
@@ -596,7 +629,11 @@ fun TagScreen(
 
     val filteredItems = remember(visibleItems, query) {
         val tokens = tokenizeSearchQuery(query)
-        if (tokens.isEmpty()) visibleItems else visibleItems.filter { matchesQuery(it, tokens) }
+        val filtered = if (tokens.isEmpty()) visibleItems else visibleItems.filter { matchesQuery(it, tokens) }
+        filtered.sortedWith(
+            compareBy<ShareTagItem> { it.materialType.ifBlank { "\uFFFF" } }
+                .thenByDescending { it.productionDate.ifBlank { "" } }
+        )
     }
 
     val categories = remember(filteredItems) { buildCategoryGroups(filteredItems) }
@@ -762,42 +799,37 @@ fun TagScreen(
                 )
             }
 
-            if (showCuidVipDialog) {
-                AlertDialog(
-                    onDismissRequest = { showCuidVipDialog = false },
-                    title = { Text(stringResource(R.string.tag_cuid_vip_title)) },
-                    text = { Text(stringResource(R.string.tag_cuid_vip_message)) },
-                    confirmButton = {
-                        TextButton(onClick = { showCuidVipDialog = false }) {
-                            Text(stringResource(R.string.action_confirm))
-                        }
-                    }
-                )
-            }
-
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 NeuButton(
-                    text = stringResource(R.string.tag_start_write),
+                    text = if (writeInProgress) stringResource(R.string.tag_cancel_write)
+                           else stringResource(R.string.tag_start_write),
                     onClick = {
-                        val item = selectedItem
-                        if (item != null) onStartWrite(item) else hintMessage = selectOneFirstText
+                        if (writeInProgress) {
+                            onCancelWrite()
+                        } else {
+                            val item = selectedItem
+                            if (item != null) onStartWrite(item) else hintMessage = selectOneFirstText
+                        }
                     },
-                    enabled = !writeInProgress && selectedItem != null,
+                    enabled = writeInProgress || (!cModifyInProgress && selectedItem != null),
                     modifier = Modifier.weight(1f)
                 )
                 NeuButton(
-                    text = stringResource(R.string.tag_cancel_write),
-                    onClick = onCancelWrite,
-                    enabled = writeInProgress,
-                    modifier = Modifier.weight(1f)
-                )
-                NeuButton(
-                    text = stringResource(R.string.tag_cuid_change),
-                    onClick = { showCuidVipDialog = true },
+                    text = if (cModifyInProgress) stringResource(R.string.tag_cancel_c_modify)
+                           else stringResource(R.string.tag_cuid_change),
+                    onClick = {
+                        if (cModifyInProgress) {
+                            onCancelWrite()
+                        } else {
+                            val item = selectedItem
+                            if (item != null) onStartCModify(item) else hintMessage = selectOneFirstText
+                        }
+                    },
+                    enabled = cModifyInProgress || (!writeInProgress && selectedItem != null),
                     modifier = Modifier.weight(1f)
                 )
             }
