@@ -354,6 +354,15 @@ data class ShareTagItem(
     val productionDate: String = ""
 )
 
+data class CModifyRecoveryInfo(
+    val originalUid: String,
+    val targetUid: String,
+    val originalKeysA: List<String>,
+    val originalKeysB: List<String>,
+    val targetKeysA: List<String>,
+    val targetKeysB: List<String>
+)
+
 private data class WriteResumePoint(
     val sector: Int,
     val blockOffset: Int
@@ -414,6 +423,7 @@ class MainActivity : ComponentActivity() {
     private var pendingWriteItem by mutableStateOf<ShareTagItem?>(null)
     private var pendingVerifyItem by mutableStateOf<ShareTagItem?>(null)
     private var pendingCModifyItem by mutableStateOf<ShareTagItem?>(null)
+    private var cModifyRecoveryInfo by mutableStateOf<CModifyRecoveryInfo?>(null)
     private var pendingClearFuid by mutableStateOf(false)
     private var pendingNdefWriteRequest by mutableStateOf<NdefWriteRequest?>(null)
     private var shareLoading by mutableStateOf(false)
@@ -879,6 +889,8 @@ class MainActivity : ComponentActivity() {
                     onStartCModifyTag = { item ->
                         enqueueCModifyTask(item)
                     },
+                    cModifyRecoveryInfo = cModifyRecoveryInfo,
+                    onDismissCModifyRecovery = { cModifyRecoveryInfo = null },
                     onStartNdefWrite = { request ->
                         enqueueNdefWriteTask(request)
                     }
@@ -2109,86 +2121,125 @@ class MainActivity : ComponentActivity() {
         val sourceBlocks = item.rawBlocks
         if (sourceBlocks.isEmpty()) return "修改失败：源数据为空"
 
-        // 当前卡自身 UID 派生密钥（不使用源标签 UID）
         val uid = tag.id ?: return "修改失败：无法读取卡 UID"
-        val derivedKeysA = deriveWriteKeys(uid, WRITE_INFO_A)
-        val derivedKeysB = deriveWriteKeys(uid, WRITE_INFO_B)
+        val originalKeysA = deriveWriteKeys(uid, WRITE_INFO_A)
+        val originalKeysB = deriveWriteKeys(uid, WRITE_INFO_B)
+
+        // 目标 UID（源数据卡的 UID）派生密钥，用于修复阶段的穷举认证
+        val targetUidBytes = runCatching { hexToBytes(item.sourceUid) }.getOrNull()?.takeIf { it.size >= 4 }
+        val targetKeysA = if (targetUidBytes != null) deriveWriteKeys(targetUidBytes, WRITE_INFO_A) else emptyList()
+        val targetKeysB = if (targetUidBytes != null) deriveWriteKeys(targetUidBytes, WRITE_INFO_B) else emptyList()
+
         val ffKey = ByteArray(6) { 0xFF.toByte() }
-        // FF 07 80 69 = MIFARE Classic 默认可写权限位
         val accessDefault = byteArrayOf(0xFF.toByte(), 0x07.toByte(), 0x80.toByte(), 0x69.toByte())
         val targetSectorCount = minOf(WRITE_SECTOR_COUNT, mifare.sectorCount)
 
-        return try {
+        fun toHex(b: ByteArray) = b.joinToString("") { "%02X".format(it) }
+
+        fun buildRecoveryInfo() = CModifyRecoveryInfo(
+            originalUid = toHex(uid),
+            targetUid = item.sourceUid.uppercase(),
+            originalKeysA = originalKeysA.map { toHex(it) },
+            originalKeysB = originalKeysB.map { toHex(it) },
+            targetKeysA = targetKeysA.map { toHex(it) },
+            targetKeysB = targetKeysB.map { toHex(it) }
+        )
+
+        // 修复：尝试用所有可能的密钥组合还原各扇区权限位为 FF 07 80 69
+        fun doRepair(): Boolean {
+            for (sector in 0 until targetSectorCount) {
+                val oKeyA = originalKeysA.getOrNull(sector) ?: return false
+                val oKeyB = originalKeysB.getOrNull(sector) ?: return false
+                val tKeyA = targetKeysA.getOrNull(sector)
+                val tKeyB = targetKeysB.getOrNull(sector)
+                val trailerBlock = mifare.sectorToBlock(sector) + 3
+                val resetTrailer = ByteArray(16).also {
+                    System.arraycopy(oKeyA, 0, it, 0, 6)
+                    System.arraycopy(accessDefault, 0, it, 6, 4)
+                    System.arraycopy(oKeyB, 0, it, 10, 6)
+                }
+                val keysA = listOfNotNull(ffKey, oKeyA, tKeyA)
+                val keysB = listOfNotNull(oKeyB, tKeyB, ffKey)
+                reconnectMifareClassic(mifare)
+                val authOk = authenticateSectorWithRetry(mifare, sector, keysA, keysB)
+                if (!authOk) return false
+                if (!writeBlockWithRetry(mifare, trailerBlock, resetTrailer)) return false
+                Thread.sleep(20)
+            }
+            return true
+        }
+
+        // 主写入流程，所有失败均抛出异常以统一触发修复
+        class CModifyFailException(msg: String) : Exception(msg)
+
+        fun doWrite() {
             mifare.connect()
             Thread.sleep(700)
 
-            // ==== Phase 1: 还原各扇区 trailer 权限位为 FF 07 80 69 ====
+            // Phase 1: 还原各扇区 trailer 权限位为 FF 07 80 69
             for (sector in 0 until targetSectorCount) {
-                val keyA = derivedKeysA.getOrNull(sector) ?: return "修改失败：扇区 $sector 派生密钥缺失"
-                val keyB = derivedKeysB.getOrNull(sector) ?: return "修改失败：扇区 $sector 派生密钥缺失"
+                val keyA = originalKeysA.getOrNull(sector) ?: throw CModifyFailException("扇区 $sector 派生密钥缺失")
+                val keyB = originalKeysB.getOrNull(sector) ?: throw CModifyFailException("扇区 $sector 派生密钥缺失")
                 val trailerBlock = mifare.sectorToBlock(sector) + 3
-                // 重置 trailer：保留当前密钥，仅将权限位改为默认可写
                 val resetTrailer = ByteArray(16).also {
                     System.arraycopy(keyA, 0, it, 0, 6)
                     System.arraycopy(accessDefault, 0, it, 6, 4)
                     System.arraycopy(keyB, 0, it, 10, 6)
                 }
-
-                // 先尝试 KeyA 认证（空卡 transport 模式下 KeyA 可写 trailer）
                 var phase1Done = false
                 val authOkA = authenticateSectorWithRetry(
                     mifare = mifare, sectorIndex = sector,
                     keysA = listOf(ffKey, keyA), keysB = emptyList()
                 )
                 if (authOkA && writeBlockWithRetry(mifare, trailerBlock, resetTrailer)) {
-                    Thread.sleep(20)
-                    phase1Done = true
+                    Thread.sleep(20); phase1Done = true
                 }
-
                 if (!phase1Done) {
-                    // 回退：用 KeyB 认证（Bambu 权限位 87 87 87 要求 KeyB 才能写 trailer）
                     reconnectMifareClassic(mifare)
                     val authOkB = authenticateSectorWithRetry(
                         mifare = mifare, sectorIndex = sector,
                         keysA = emptyList(), keysB = listOf(keyB, ffKey)
                     )
-                    if (!authOkB) return "修改失败：扇区 $sector 阶段1认证失败"
-                    val writeOk = writeBlockWithRetry(mifare, trailerBlock, resetTrailer)
-                    if (!writeOk) return "修改失败：扇区 $sector 还原权限位失败"
+                    if (!authOkB) throw CModifyFailException("扇区 $sector 阶段1认证失败")
+                    if (!writeBlockWithRetry(mifare, trailerBlock, resetTrailer)) throw CModifyFailException("扇区 $sector 还原权限位失败")
                     Thread.sleep(20)
                 }
             }
 
-            // ==== Phase 2: 重连，逐扇区写入源数据 ====
+            // Phase 2: 重连，逐扇区写入源数据
             reconnectMifareClassic(mifare)
             Thread.sleep(300)
-
             for (sector in 0 until targetSectorCount) {
-                val keyA = derivedKeysA.getOrNull(sector) ?: return "修改失败：扇区 $sector 派生密钥缺失"
-                val keyB = derivedKeysB.getOrNull(sector) ?: return "修改失败：扇区 $sector 派生密钥缺失"
-                // 权限位已还原为 FF 07 80 69，KeyA 或 FF 均可认证
+                val keyA = originalKeysA.getOrNull(sector) ?: throw CModifyFailException("扇区 $sector 派生密钥缺失")
+                val keyB = originalKeysB.getOrNull(sector) ?: throw CModifyFailException("扇区 $sector 派生密钥缺失")
                 val authOk = authenticateSectorWithRetry(
                     mifare = mifare, sectorIndex = sector,
                     keysA = listOf(ffKey, keyA), keysB = listOf(ffKey, keyB)
                 )
-                if (!authOk) return "修改失败：扇区 $sector 阶段2认证失败"
-
+                if (!authOk) throw CModifyFailException("扇区 $sector 阶段2认证失败")
                 val startBlock = mifare.sectorToBlock(sector)
                 for (offset in 0 until 4) {
                     val blockIndex = startBlock + offset
                     val sourceBlockIndex = sector * 4 + offset
                     val blockData = sourceBlocks.getOrNull(sourceBlockIndex)
-                        ?: return "修改失败：区块 $sourceBlockIndex 源数据缺失"
-                    if (blockData.size != 16) return "修改失败：区块 $sourceBlockIndex 数据长度异常"
-                    val writeOk = writeBlockWithRetry(mifare, blockIndex, blockData)
-                    if (!writeOk) return "修改失败：区块 $blockIndex 写入失败"
+                        ?: throw CModifyFailException("区块 $sourceBlockIndex 源数据缺失")
+                    if (blockData.size != 16) throw CModifyFailException("区块 $sourceBlockIndex 数据长度异常")
+                    if (!writeBlockWithRetry(mifare, blockIndex, blockData)) throw CModifyFailException("区块 $blockIndex 写入失败")
                     Thread.sleep(20)
                 }
             }
+        }
 
+        return try {
+            doWrite()
             "写入成功：已完成全部区块写入"
         } catch (e: Exception) {
-            "修改失败：${e.message.orEmpty()}"
+            val failMsg = e.message.orEmpty()
+            // 尝试修复最多2次
+            val repaired = runCatching { doRepair() }.getOrDefault(false)
+                        || runCatching { doRepair() }.getOrDefault(false)
+            runOnUiThread { cModifyRecoveryInfo = buildRecoveryInfo() }
+            if (repaired) "修改失败（已还原权限位）：$failMsg" else "修改失败（修复未完成）：$failMsg"
         } finally {
             try { mifare.close() } catch (_: Exception) { }
         }

@@ -63,6 +63,10 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import com.m0h31h31.bamburfidreader.CModifyRecoveryInfo
 import com.m0h31h31.bamburfidreader.ShareTagItem
 import com.m0h31h31.bamburfidreader.R
 import com.m0h31h31.bamburfidreader.ui.components.AppCircularProgressIndicator
@@ -563,6 +567,139 @@ private fun CategoryView(
     }
 }
 
+@Composable
+private fun CModifyRecoveryDialog(
+    info: CModifyRecoveryInfo,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val ffKey = "FFFFFFFFFFFF"
+
+    // 构建可滚动密钥区文字
+    val keysText = buildString {
+        appendLine("=== 原UID(${info.originalUid})派生密钥 ===")
+        for (i in info.originalKeysA.indices) {
+            appendLine("S${i} A: ${info.originalKeysA.getOrElse(i) { "" }}")
+            appendLine("S${i} B: ${info.originalKeysB.getOrElse(i) { "" }}")
+        }
+        if (info.targetKeysA.isNotEmpty() && info.targetUid != info.originalUid) {
+            appendLine()
+            appendLine("=== 目标UID(${info.targetUid})派生密钥 ===")
+            for (i in info.targetKeysA.indices) {
+                appendLine("S${i} A: ${info.targetKeysA.getOrElse(i) { "" }}")
+                appendLine("S${i} B: ${info.targetKeysB.getOrElse(i) { "" }}")
+            }
+        }
+        appendLine()
+        appendLine("=== FF固定秘钥 ===")
+        appendLine(ffKey)
+    }.trimEnd()
+
+    // MCT 格式一键复制内容（去重后所有密钥）
+    val copyText = buildString {
+        val all = mutableSetOf<String>()
+        info.originalKeysA.forEach { all.add(it) }
+        info.originalKeysB.forEach { all.add(it) }
+        info.targetKeysA.forEach { all.add(it) }
+        info.targetKeysB.forEach { all.add(it) }
+        all.add(ffKey)
+        all.forEach { appendLine(it) }
+    }.trimEnd()
+
+    Dialog(onDismissRequest = onDismiss) {
+        NeuPanel(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(4.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "CUID 改写失败 — 请备份秘钥",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    fontWeight = FontWeight.Bold
+                )
+
+                // UID信息
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = "原UID（改写前）：${info.originalUid}",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "目标UID（源数据）：${info.targetUid}",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "卡片现UID可能是以上两者之一",
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                // 密钥区（固定高度可滚动）
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "密钥列表（每行一个）",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 80.dp, max = 200.dp)
+                            .background(
+                                MaterialTheme.colorScheme.surfaceVariant,
+                                RoundedCornerShape(6.dp)
+                            )
+                            .padding(8.dp)
+                    ) {
+                        androidx.compose.foundation.text.selection.SelectionContainer {
+                            Text(
+                                text = keysText,
+                                fontSize = 10.sp,
+                                lineHeight = 14.sp,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                modifier = Modifier.verticalScroll(rememberScrollState())
+                            )
+                        }
+                    }
+                }
+
+                // 提示文字
+                Text(
+                    text = "请复制上方密钥，使用 Mifare Classic Tool 手动尝试认证各扇区并格式化修复卡片。",
+                    fontSize = 10.sp,
+                    lineHeight = 13.sp,
+                    color = MaterialTheme.colorScheme.error
+                )
+
+                // 按钮行
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    NeuButton(
+                        text = "一键复制秘钥",
+                        onClick = {
+                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("cuid_keys", copyText))
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    NeuButton(
+                        text = "关闭",
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Preview
 @Composable
@@ -580,6 +717,8 @@ fun TagScreen(
     onCancelWrite: () -> Unit = {},
     onStartCModify: (ShareTagItem) -> Unit = {},
     cModifyInProgress: Boolean = false,
+    cModifyRecoveryInfo: com.m0h31h31.bamburfidreader.CModifyRecoveryInfo? = null,
+    onDismissCModifyRecovery: () -> Unit = {},
     onRefresh: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -857,6 +996,14 @@ fun TagScreen(
                     Text(text = writeStatusMessage, fontSize = 13.sp, color = statusColor, fontWeight = FontWeight.Bold)
                 }
             }
+        }
+
+        // CUID 修改失败恢复弹窗
+        if (cModifyRecoveryInfo != null) {
+            CModifyRecoveryDialog(
+                info = cModifyRecoveryInfo,
+                onDismiss = onDismissCModifyRecovery
+            )
         }
     }
 }

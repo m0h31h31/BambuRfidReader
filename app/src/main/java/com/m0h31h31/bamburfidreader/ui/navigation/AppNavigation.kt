@@ -124,6 +124,8 @@ fun AppNavigation(
     onCancelWriteTag: () -> Unit,
     onStartCModifyTag: (ShareTagItem) -> Unit = {},
     cModifyInProgress: Boolean = false,
+    cModifyRecoveryInfo: com.m0h31h31.bamburfidreader.CModifyRecoveryInfo? = null,
+    onDismissCModifyRecovery: () -> Unit = {},
     onStartNdefWrite: (NdefWriteRequest) -> String
 ) {
     val resolvedUiStyle = LocalAppUiStyle.current
@@ -315,6 +317,8 @@ fun AppNavigation(
                     onCancelWrite = onCancelWriteTag,
                     onStartCModify = onStartCModifyTag,
                     cModifyInProgress = cModifyInProgress,
+                    cModifyRecoveryInfo = cModifyRecoveryInfo,
+                    onDismissCModifyRecovery = onDismissCModifyRecovery,
                     onRefresh = onTagScreenEnter
                 )
             }
