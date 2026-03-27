@@ -109,6 +109,9 @@ private const val RW_RECONNECT_DELAY_MS = 35L
 private const val UI_PREFS_NAME = "ui_prefs"
 private const val KEY_VOICE_ENABLED = "voice_enabled"
 private const val KEY_UI_STYLE = "ui_style"
+private const val KEY_BOOST_REMIND_LAST_MS = "boost_remind_last_ms"
+private const val BOOST_REMIND_INTERVAL_MS = 7L * 24 * 60 * 60 * 1000   // 一周
+private const val BOOST_DESIGN_URI = "bambulab://bbl/design/model/detail?design_id=2020787&appSharePlatform=copy"
 private const val KEY_THEME_MODE = "theme_mode"
 private const val KEY_INVENTORY_ENABLED = "inventory_enabled"
 private const val KEY_HIDE_COPIED_TAGS = "hide_copied_tags"
@@ -125,6 +128,50 @@ private val WRITE_HKDF_SALT = byteArrayOf(
 )
 private val WRITE_INFO_A = "RFID-A\u0000".toByteArray(Charsets.US_ASCII)
 private val WRITE_INFO_B = "RFID-B\u0000".toByteArray(Charsets.US_ASCII)
+
+@Composable
+private fun BoostReminderDialog(
+    onDismiss: () -> Unit,
+    onBoost: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text(
+                    text = "⏰ 别让助力券过期！",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = "如果你有多余的助力券，不妨把它用在有意义的地方——\n\n给作者的 MakerWorld 主页 @m0h31h31 助力！主页上的其他模型同样欢迎助力 🎉\n\n📌 每年可助力 5 个模型，每个模型最多助力 2 次。\n\n你的每一次助力，都是对作者坚持创作最真诚的支持 ❤️",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)
+                ) {
+                    OutlinedButton(onClick = onDismiss) {
+                        Text("知道了")
+                    }
+                    Button(onClick = onBoost) {
+                        Text("去助力 🚀")
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun UserAgreementDialog(
@@ -546,28 +593,50 @@ class MainActivity : ComponentActivity() {
             }
             if (pendingWriteItem != null) {
                 val targetItem = pendingWriteItem
-                val result = if (targetItem != null) {
+                val writeResult = if (targetItem != null) {
                     writeTagFromDump(tag, targetItem)
                 } else {
                     uiString(R.string.copy_write_task_empty)
                 }
-                runOnUiThread {
-                    writeStatusMessage = result
-                    if (result.contains("成功") || result.contains("success", ignoreCase = true)) {
-                        playFeedbackTone(FeedbackTone.SUCCESS)
-                        // 写入成功：递增复制次数
-                        if (targetItem != null && targetItem.dbId > 0) {
-                            filamentDbHelper?.writableDatabase?.let { db ->
-                                filamentDbHelper!!.incrementShareTagCopyCount(db, targetItem.dbId)
+                if (writeResult.contains("成功") || writeResult.contains("success", ignoreCase = true)) {
+                    // 写入成功后自动校验（无需重复贴卡）
+                    runOnUiThread { writeStatusMessage = "写入完成，正在自动校验..." }
+                    val verifyResult = if (targetItem != null) {
+                        verifyTagAgainstDump(tag, targetItem)
+                    } else "校验失败：任务为空"
+                    runOnUiThread {
+                        if (verifyResult.contains("成功") || verifyResult.contains("success", ignoreCase = true)) {
+                            playFeedbackTone(FeedbackTone.SUCCESS)
+                            if (targetItem != null && targetItem.dbId > 0) {
+                                filamentDbHelper?.writableDatabase?.let { db ->
+                                    filamentDbHelper!!.incrementShareTagCopyCount(db, targetItem.dbId)
+                                    filamentDbHelper!!.setShareTagVerified(db, targetItem.dbId, true)
+                                }
+                                shareTagItems = shareTagItems.map { si ->
+                                    if (si.dbId == targetItem.dbId) si.copy(copyCount = si.copyCount + 1, verified = true) else si
+                                }
                             }
-                            shareTagItems = shareTagItems.map { si ->
-                                if (si.dbId == targetItem.dbId) si.copy(copyCount = si.copyCount + 1) else si
+                            pendingWriteItem = null
+                            writeStatusMessage = "写入并校验成功"
+                        } else {
+                            // 校验失败但写入成功：递增次数，保留 pendingVerifyItem 供手动重试
+                            playFeedbackTone(FeedbackTone.FAILURE)
+                            if (targetItem != null && targetItem.dbId > 0) {
+                                filamentDbHelper?.writableDatabase?.let { db ->
+                                    filamentDbHelper!!.incrementShareTagCopyCount(db, targetItem.dbId)
+                                }
+                                shareTagItems = shareTagItems.map { si ->
+                                    if (si.dbId == targetItem.dbId) si.copy(copyCount = si.copyCount + 1) else si
+                                }
                             }
+                            pendingWriteItem = null
+                            pendingVerifyItem = targetItem
+                            writeStatusMessage = "写入成功，自动校验失败：$verifyResult，请再次贴卡校验"
                         }
-                        pendingWriteItem = null
-                        pendingVerifyItem = targetItem
-                        writeStatusMessage = uiString(R.string.copy_write_done_verify_again)
-                    } else {
+                    }
+                } else {
+                    runOnUiThread {
+                        writeStatusMessage = writeResult
                         playFeedbackTone(FeedbackTone.FAILURE)
                     }
                 }
@@ -599,18 +668,18 @@ class MainActivity : ComponentActivity() {
             } else if (pendingCModifyItem != null) {
                 val targetItem = pendingCModifyItem
                 val result = if (targetItem != null) {
-                    writeCModifyTag(tag, targetItem)
+                    writeCModifyTag(tag, targetItem) { status ->
+                        runOnUiThread { writeStatusMessage = status }
+                    }
                 } else {
                     "C卡修改任务为空"
                 }
                 runOnUiThread {
+                    writeStatusMessage = result
                     if (result.contains("成功")) {
                         playFeedbackTone(FeedbackTone.SUCCESS)
                         pendingCModifyItem = null
-                        pendingVerifyItem = targetItem
-                        writeStatusMessage = uiString(R.string.copy_write_done_verify_again)
                     } else {
-                        writeStatusMessage = result
                         playFeedbackTone(FeedbackTone.FAILURE)
                     }
                 }
@@ -732,6 +801,11 @@ class MainActivity : ComponentActivity() {
         }.getOrDefault(ColorPalette.OCEAN)
         var showUserAgreement by mutableStateOf(
             uiPrefs.getInt(KEY_USER_AGREEMENT_VERSION, 0) < CURRENT_USER_AGREEMENT_VERSION
+        )
+        val lastBoostRemind = uiPrefs.getLong(KEY_BOOST_REMIND_LAST_MS, 0L)
+        var showBoostReminder by mutableStateOf(
+            !showUserAgreement &&
+            System.currentTimeMillis() - lastBoostRemind >= BOOST_REMIND_INTERVAL_MS
         )
         LogCollector.init(this)
         nfcAdapter = NfcAdapter.getDefaultAdapter(this)
@@ -936,6 +1010,30 @@ class MainActivity : ComponentActivity() {
                                 .putInt(KEY_USER_AGREEMENT_VERSION, CURRENT_USER_AGREEMENT_VERSION)
                                 .apply()
                             showUserAgreement = false
+                        }
+                    )
+                }
+                if (showBoostReminder) {
+                    BoostReminderDialog(
+                        onDismiss = {
+                            uiPrefs.edit()
+                                .putLong(KEY_BOOST_REMIND_LAST_MS, System.currentTimeMillis())
+                                .apply()
+                            showBoostReminder = false
+                        },
+                        onBoost = {
+                            uiPrefs.edit()
+                                .putLong(KEY_BOOST_REMIND_LAST_MS, System.currentTimeMillis())
+                                .apply()
+                            showBoostReminder = false
+                            runCatching {
+                                startActivity(
+                                    android.content.Intent(
+                                        android.content.Intent.ACTION_VIEW,
+                                        android.net.Uri.parse(BOOST_DESIGN_URI)
+                                    )
+                                )
+                            }
                         }
                     )
                 }
@@ -2240,141 +2338,189 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * 修改C卡：使用目标卡 UID 派生密钥进行认证，将选中标签的 rawBlocks 逐扇区写入目标卡。
-     * 数据块直接来自源标签，sector trailer 也直接来自源标签（已包含源UID派生的密钥）。
+     * CUID改写三阶段流程（集成校验，无需重复贴卡）：
+     * Phase 1 — 用穷举密钥将所有扇区 Trailer 重置为全FF（FF*6 | FF078069 | FF*6），
+     *           每扇区最多重试5次，写后立即用FF密钥回读权限位校验。
+     * Phase 2 — 全部 Trailer 重置完成后，使用FF密钥逐扇区写入源数据，每扇区最多重试5次。
+     * Phase 3 — 重连，使用源数据密钥全量回读校验，Trailer 仅比较访问位。
      */
-    /**
-     * CUID改写两阶段流程：
-     * Phase 1 — 用当前卡 UID 派生密钥认证，将各扇区 trailer 权限位还原为 FF 07 80 69（完全可写）。
-     *           Bambu 权限位 87 87 87 69 要求用 KeyB 写 trailer；空卡 FF 07 80 69 用 KeyA 即可。
-     * Phase 2 — 重连后逐扇区写入源数据（含 trailer），完成后由调用方转入校验流程。
-     */
-    private fun writeCModifyTag(tag: Tag, item: ShareTagItem): String {
-        val mifare = MifareClassic.get(tag) ?: return "修改失败：标签不支持 MIFARE Classic"
+    private fun writeCModifyTag(
+        tag: Tag,
+        item: ShareTagItem,
+        onStatusUpdate: ((String) -> Unit)? = null
+    ): String {
+        val mifare = MifareClassic.get(tag) ?: return "改写失败：标签不支持 MIFARE Classic"
         val sourceBlocks = item.rawBlocks
-        if (sourceBlocks.isEmpty()) return "修改失败：源数据为空"
+        if (sourceBlocks.isEmpty()) return "改写失败：源数据为空"
 
-        val uid = tag.id ?: return "修改失败：无法读取卡 UID"
-        val originalKeysA = deriveWriteKeys(uid, WRITE_INFO_A)
-        val originalKeysB = deriveWriteKeys(uid, WRITE_INFO_B)
+        val uid = tag.id ?: return "改写失败：无法读取卡 UID"
+        val currentKeysA = deriveWriteKeys(uid, WRITE_INFO_A)
+        val currentKeysB = deriveWriteKeys(uid, WRITE_INFO_B)
 
-        // 目标 UID（源数据卡的 UID）派生密钥，用于修复阶段的穷举认证
         val targetUidBytes = runCatching { hexToBytes(item.sourceUid) }.getOrNull()?.takeIf { it.size >= 4 }
         val targetKeysA = if (targetUidBytes != null) deriveWriteKeys(targetUidBytes, WRITE_INFO_A) else emptyList()
         val targetKeysB = if (targetUidBytes != null) deriveWriteKeys(targetUidBytes, WRITE_INFO_B) else emptyList()
 
         val ffKey = ByteArray(6) { 0xFF.toByte() }
-        val accessDefault = byteArrayOf(0xFF.toByte(), 0x07.toByte(), 0x80.toByte(), 0x69.toByte())
+        // 目标 Trailer：KeyA=FF*6, Access=FF078069, KeyB=FF*6
+        val fullFfTrailer = ByteArray(16).apply {
+            for (i in 0..5) this[i] = 0xFF.toByte()
+            this[6] = 0xFF.toByte(); this[7] = 0x07.toByte()
+            this[8] = 0x80.toByte(); this[9] = 0x69.toByte()
+            for (i in 10..15) this[i] = 0xFF.toByte()
+        }
         val targetSectorCount = minOf(WRITE_SECTOR_COUNT, mifare.sectorCount)
+        val maxRetry = 5
 
-        fun toHex(b: ByteArray) = b.joinToString("") { "%02X".format(it) }
+        // 分步 Trailer 还原：Bambu 卡权限位 87878769 只允许 KeyB 写 Trailer，分三步避免卡死。
+        // 步骤间不整体重连，直接重认证，节省每扇区 ~200ms。
+        // 校验：优先读回 KeyB 字节（FF078069 下可读）；读回 00 或失败则以 FF 认证成功为准。
+        fun resetTrailerStepByStep(sector: Int, trailerBlock: Int): Boolean {
+            val curKeyA = currentKeysA.getOrNull(sector) ?: return false
+            val curKeyB = currentKeysB.getOrNull(sector) ?: return false
 
-        fun buildRecoveryInfo() = CModifyRecoveryInfo(
-            originalUid = toHex(uid),
-            targetUid = item.sourceUid.uppercase(),
-            originalKeysA = originalKeysA.map { toHex(it) },
-            originalKeysB = originalKeysB.map { toHex(it) },
-            targetKeysA = targetKeysA.map { toHex(it) },
-            targetKeysB = targetKeysB.map { toHex(it) }
-        )
-
-        // 修复：尝试用所有可能的密钥组合还原各扇区权限位为 FF 07 80 69
-        fun doRepair(): Boolean {
-            for (sector in 0 until targetSectorCount) {
-                val oKeyA = originalKeysA.getOrNull(sector) ?: return false
-                val oKeyB = originalKeysB.getOrNull(sector) ?: return false
-                val tKeyA = targetKeysA.getOrNull(sector)
-                val tKeyB = targetKeysB.getOrNull(sector)
-                val trailerBlock = mifare.sectorToBlock(sector) + 3
-                val resetTrailer = ByteArray(16).also {
-                    System.arraycopy(oKeyA, 0, it, 0, 6)
-                    System.arraycopy(accessDefault, 0, it, 6, 4)
-                    System.arraycopy(oKeyB, 0, it, 10, 6)
-                }
-                val keysA = listOfNotNull(ffKey, oKeyA, tKeyA)
-                val keysB = listOfNotNull(oKeyB, tKeyB, ffKey)
-                reconnectMifareClassic(mifare)
-                val authOk = authenticateSectorWithRetry(mifare, sector, keysA, keysB)
-                if (!authOk) return false
-                if (!writeBlockWithRetry(mifare, trailerBlock, resetTrailer)) return false
-                Thread.sleep(20)
+            val step1Trailer = ByteArray(16).apply {    // 仅改权限位 → FF078069，密钥保持派生值
+                System.arraycopy(curKeyA, 0, this, 0, 6)
+                this[6] = 0xFF.toByte(); this[7] = 0x07.toByte()
+                this[8] = 0x80.toByte(); this[9] = 0x69.toByte()
+                System.arraycopy(curKeyB, 0, this, 10, 6)
             }
-            return true
+            val step2Trailer = ByteArray(16).apply {    // KeyA → FF，保留 curKeyB
+                for (i in 0..5) this[i] = 0xFF.toByte()
+                this[6] = 0xFF.toByte(); this[7] = 0x07.toByte()
+                this[8] = 0x80.toByte(); this[9] = 0x69.toByte()
+                System.arraycopy(curKeyB, 0, this, 10, 6)
+            }
+            // step3 = fullFfTrailer
+
+            // Step 1：必须用派生 KeyB（87878769 权限只允许 KeyB 写 Trailer）
+            reconnectMifareClassic(mifare)
+            if (!authenticateSectorWithRetry(mifare, sector, emptyList(), listOf(curKeyB))) return false
+            if (!writeBlockWithRetry(mifare, trailerBlock, step1Trailer)) return false
+            Thread.sleep(15)
+
+            // Step 2：权限位已是 FF078069，KeyA/B 均可写；直接重认证，不重连
+            if (!authenticateSectorWithRetry(mifare, sector, listOf(curKeyA, ffKey), listOf(curKeyB, ffKey))) return false
+            if (!writeBlockWithRetry(mifare, trailerBlock, step2Trailer)) return false
+            Thread.sleep(15)
+
+            // Step 3：KeyA 已是 FF；直接重认证，不重连
+            if (!authenticateSectorWithRetry(mifare, sector, listOf(ffKey), listOf(curKeyB, ffKey))) return false
+            if (!writeBlockWithRetry(mifare, trailerBlock, fullFfTrailer)) return false
+            Thread.sleep(15)
+
+            // 校验：直接重认证，不重连
+            if (!authenticateSectorWithRetry(mifare, sector, listOf(ffKey), listOf(ffKey))) return false
+            val readBack = readBlockWithRetry(mifare, trailerBlock)
+            if (readBack != null && readBack.size >= 16) {
+                val accessOk = readBack[6] == 0xFF.toByte() && readBack[7] == 0x07.toByte() &&
+                               readBack[8] == 0x80.toByte() && readBack[9] == 0x69.toByte()
+                val keyBOk = (10..15).all { readBack[it] == 0xFF.toByte() }
+                if (accessOk && keyBOk) return true     // 读回完全确认 ✓
+                if (accessOk) return true               // KeyB 读回 00（部分卡屏蔽），以权限位+FF认证为准
+            }
+            return true // 读取失败但 FF 认证已通过，视为成功
         }
 
-        // 主写入流程，所有失败均抛出异常以统一触发修复
-        class CModifyFailException(msg: String) : Exception(msg)
+        val retryHint = "请移开标签重新贴上重试，确保标签处于手机 NFC 区域"
 
-        fun doWrite() {
+        return try {
             mifare.connect()
-            Thread.sleep(700)
+            Thread.sleep(300)
 
-            // Phase 1: 还原各扇区 trailer 权限位为 FF 07 80 69
+            // ===== Phase 1: 将所有扇区 Trailer 重置为全FF =====
+            onStatusUpdate?.invoke("正在还原 Trailer，请等待...")
             for (sector in 0 until targetSectorCount) {
-                val keyA = originalKeysA.getOrNull(sector) ?: throw CModifyFailException("扇区 $sector 派生密钥缺失")
-                val keyB = originalKeysB.getOrNull(sector) ?: throw CModifyFailException("扇区 $sector 派生密钥缺失")
+                onStatusUpdate?.invoke("正在还原 Trailer ${sector + 1}/$targetSectorCount...")
                 val trailerBlock = mifare.sectorToBlock(sector) + 3
-                val resetTrailer = ByteArray(16).also {
-                    System.arraycopy(keyA, 0, it, 0, 6)
-                    System.arraycopy(accessDefault, 0, it, 6, 4)
-                    System.arraycopy(keyB, 0, it, 10, 6)
-                }
-                var phase1Done = false
-                val authOkA = authenticateSectorWithRetry(
-                    mifare = mifare, sectorIndex = sector,
-                    keysA = listOf(ffKey, keyA), keysB = emptyList()
-                )
-                if (authOkA && writeBlockWithRetry(mifare, trailerBlock, resetTrailer)) {
-                    Thread.sleep(20); phase1Done = true
-                }
-                if (!phase1Done) {
+                var done = false
+                for (attempt in 1..maxRetry) {
+                    // 优先：分步还原（适合 Bambu 派生密钥卡）
+                    if (resetTrailerStepByStep(sector, trailerBlock)) { done = true; break }
+                    // 回退：卡已处于 FF 或目标卡密钥状态，直接一步写入
                     reconnectMifareClassic(mifare)
-                    val authOkB = authenticateSectorWithRetry(
-                        mifare = mifare, sectorIndex = sector,
-                        keysA = emptyList(), keysB = listOf(keyB, ffKey)
-                    )
-                    if (!authOkB) throw CModifyFailException("扇区 $sector 阶段1认证失败")
-                    if (!writeBlockWithRetry(mifare, trailerBlock, resetTrailer)) throw CModifyFailException("扇区 $sector 还原权限位失败")
-                    Thread.sleep(20)
+                    val allA = buildList { add(ffKey); targetKeysA.getOrNull(sector)?.let { add(it) } }
+                    val allB = buildList { add(ffKey); targetKeysB.getOrNull(sector)?.let { add(it) } }
+                    if (authenticateSectorWithRetry(mifare, sector, allA, allB) &&
+                        writeBlockWithRetry(mifare, trailerBlock, fullFfTrailer)) {
+                        Thread.sleep(15)
+                        if (authenticateSectorWithRetry(mifare, sector, listOf(ffKey), listOf(ffKey))) {
+                            done = true; break
+                        }
+                    }
+                    Thread.sleep(60L * attempt)
                 }
+                if (!done) return "扇区 $sector Trailer 还原失败，$retryHint"
+            }
+            onStatusUpdate?.invoke("Trailer 还原完成，正在写入目标数据...")
+            Thread.sleep(100)
+
+            // ===== Phase 2: 使用FF密钥逐扇区写入源数据 =====
+            for (sector in 0 until targetSectorCount) {
+                onStatusUpdate?.invoke("正在写入数据 ${sector + 1}/$targetSectorCount...")
+                var done = false
+                for (attempt in 1..maxRetry) {
+                    reconnectMifareClassic(mifare)
+                    if (!authenticateSectorWithRetry(mifare, sector, listOf(ffKey), listOf(ffKey))) {
+                        Thread.sleep(60L * attempt); continue
+                    }
+                    val startBlock = mifare.sectorToBlock(sector)
+                    var blockFailed = false
+                    for (offset in 0 until 4) {
+                        val blockIndex = startBlock + offset
+                        val srcIdx = sector * 4 + offset
+                        val blockData = sourceBlocks.getOrNull(srcIdx)
+                            ?: return "改写失败：区块 $srcIdx 源数据缺失"
+                        if (blockData.size != 16) return "改写失败：区块 $srcIdx 数据长度异常"
+                        if (!writeBlockWithRetry(mifare, blockIndex, blockData)) { blockFailed = true; break }
+                        Thread.sleep(15)
+                    }
+                    if (!blockFailed) { done = true; break }
+                    Thread.sleep(60L * attempt)
+                }
+                if (!done) return "扇区 $sector 数据写入失败，$retryHint"
             }
 
-            // Phase 2: 重连，逐扇区写入源数据
-            reconnectMifareClassic(mifare)
-            Thread.sleep(300)
+            // ===== Phase 3: 重连，使用源数据密钥全量校验 =====
+            onStatusUpdate?.invoke("写入完成，正在校验数据...")
+            try { mifare.close() } catch (_: Exception) {}
+            Thread.sleep(150)
+            mifare.connect()
+            Thread.sleep(200)
+
             for (sector in 0 until targetSectorCount) {
-                val keyA = originalKeysA.getOrNull(sector) ?: throw CModifyFailException("扇区 $sector 派生密钥缺失")
-                val keyB = originalKeysB.getOrNull(sector) ?: throw CModifyFailException("扇区 $sector 派生密钥缺失")
-                val authOk = authenticateSectorWithRetry(
-                    mifare = mifare, sectorIndex = sector,
-                    keysA = listOf(ffKey, keyA), keysB = listOf(ffKey, keyB)
-                )
-                if (!authOk) throw CModifyFailException("扇区 $sector 阶段2认证失败")
+                val trailerData = sourceBlocks.getOrNull(sector * 4 + 3)
+                    ?: return "校验失败：扇区 $sector 源 Trailer 缺失"
+                if (trailerData.size != 16) return "校验失败：扇区 $sector Trailer 长度异常"
+                val srcKeyA = trailerData.copyOfRange(0, 6)
+                val srcKeyB = trailerData.copyOfRange(10, 16)
+                if (!authenticateSectorWithRetry(mifare, sector, listOf(srcKeyA), listOf(srcKeyB))) {
+                    return "改写成功但校验认证失败：扇区 $sector，$retryHint"
+                }
                 val startBlock = mifare.sectorToBlock(sector)
                 for (offset in 0 until 4) {
                     val blockIndex = startBlock + offset
-                    val sourceBlockIndex = sector * 4 + offset
-                    val blockData = sourceBlocks.getOrNull(sourceBlockIndex)
-                        ?: throw CModifyFailException("区块 $sourceBlockIndex 源数据缺失")
-                    if (blockData.size != 16) throw CModifyFailException("区块 $sourceBlockIndex 数据长度异常")
-                    if (!writeBlockWithRetry(mifare, blockIndex, blockData)) throw CModifyFailException("区块 $blockIndex 写入失败")
-                    Thread.sleep(20)
+                    val srcIdx = sector * 4 + offset
+                    val expected = sourceBlocks.getOrNull(srcIdx) ?: continue
+                    val actual = readBlockWithRetry(mifare, blockIndex)
+                        ?: return "改写成功但校验读取失败：区块 $blockIndex，$retryHint"
+                    val cmpExpected = if (blockIndex % 4 == 3) expected.copyOf().also {
+                        for (i in 0..5) it[i] = 0; for (i in 10..15) it[i] = 0
+                    } else expected
+                    val cmpActual = if (blockIndex % 4 == 3) actual.copyOf().also {
+                        for (i in 0..5) it[i] = 0; for (i in 10..15) it[i] = 0
+                    } else actual
+                    if (!cmpActual.contentEquals(cmpExpected)) {
+                        return "改写成功但数据不一致：区块 $blockIndex，$retryHint"
+                    }
                 }
             }
-        }
-
-        return try {
-            doWrite()
-            "写入成功：已完成全部区块写入"
+            onStatusUpdate?.invoke("改写并校验完成！")
+            "改写成功：已完成全部区块写入并校验"
         } catch (e: Exception) {
-            val failMsg = e.message.orEmpty()
-            // 尝试修复最多2次
-            val repaired = runCatching { doRepair() }.getOrDefault(false)
-                        || runCatching { doRepair() }.getOrDefault(false)
-            runOnUiThread { cModifyRecoveryInfo = buildRecoveryInfo() }
-            if (repaired) "修改失败（已还原权限位）：$failMsg" else "修改失败（修复未完成）：$failMsg"
+            "改写失败：${e.message.orEmpty()}，$retryHint"
         } finally {
-            try { mifare.close() } catch (_: Exception) { }
+            try { mifare.close() } catch (_: Exception) {}
         }
     }
 

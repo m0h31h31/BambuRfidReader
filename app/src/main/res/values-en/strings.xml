@@ -96,7 +96,7 @@
     <string name="tag_loading_shared_data">Loading shared data...</string>
     <string name="tag_write_notice_title">Write Notes</string>
     <string name="tag_write_notice_1">1. Keep the tag firmly against the phone NFC area. Do not move it while writing.</string>
-    <string name="tag_write_notice_2">2. After writing completes, remove the tag, then tap it again for verification.</string>
+    <string name="tag_write_notice_2">2. If writing or verification fails, remove the tag and tap again — the app will retry automatically.</string>
     <string name="tag_write_notice_3">3. Do not write to an existing tag. Duplicate tags may be recognized as the same spool.</string>
     <string name="tag_write_notice_4">4. Writing may fail. The author is not responsible for any consequences.</string>
     <string name="tag_current_selection">Current selection: %1$s</string>

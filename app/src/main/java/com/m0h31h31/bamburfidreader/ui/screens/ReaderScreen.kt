@@ -701,7 +701,7 @@ fun ReaderScreen(
                                             }
                                         },
                                         label = stringResource(R.string.reader_original_material),
-                                        modifier = Modifier.fillMaxWidth()
+                                        modifier = Modifier.fillMaxWidth(0.7f)
                                     )
                                     CompactField(
                                         value = editNotes,
@@ -714,7 +714,7 @@ fun ReaderScreen(
                                             }
                                         },
                                         label = stringResource(R.string.reader_notes),
-                                        modifier = Modifier.fillMaxWidth()
+                                        modifier = Modifier.fillMaxWidth(0.7f)
                                     )
                                 }
                             }
