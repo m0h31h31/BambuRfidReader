@@ -2889,6 +2889,29 @@
       ]
     },
     {
+      "fila_color_code": "13204",
+      "fila_id": "GFA16",
+      "fila_color_type": "单色",
+      "fila_type": "PLA Wood",
+      "fila_color_name": {
+        "de": "Rosenholz",
+        "sv": "Rosenträ",
+        "pt": "Jacarandá",
+        "ko": "로즈우드",
+        "ja": "ローズウッド",
+        "en": "Rosewood",
+        "it": "Palissandro",
+        "fr": "Palissandre",
+        "hu": "Rózsafa",
+        "zh": "红木",
+        "nl": "Rozenhout",
+        "es": "Palo de rosa"
+      },
+      "fila_color": [
+        "#3F231CFF"
+      ]
+    },
+    {
       "fila_color_code": "13106",
       "fila_id": "GFA16",
       "fila_color_type": "单色",
