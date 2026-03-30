@@ -31,9 +31,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
@@ -66,6 +69,9 @@ import androidx.compose.ui.window.Dialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.Bitmap
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import com.m0h31h31.bamburfidreader.CModifyRecoveryInfo
 import com.m0h31h31.bamburfidreader.ShareTagItem
 import com.m0h31h31.bamburfidreader.R
@@ -82,6 +88,13 @@ import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
 private val tagItemShape = RoundedCornerShape(24.dp)
+
+private fun rgbDistance(r1: Int, g1: Int, b1: Int, r2: Int, g2: Int, b2: Int): Double {
+    val dr = (r1 - r2).toDouble()
+    val dg = (g1 - g2).toDouble()
+    val db = (b1 - b2).toDouble()
+    return Math.sqrt(dr * dr + dg * dg + db * db)
+}
 
 private fun swatchTextColor(colorValues: List<String>, colorUid: String): Color {
     val first = colorValues.firstOrNull()?.trim()?.let { parseColorValue(it) }
@@ -729,6 +742,18 @@ fun TagScreen(
     var hintMessage by remember { mutableStateOf("") }
     var pendingDeleteItem by remember { mutableStateOf<ShareTagItem?>(null) }
     var isRefreshing by remember { mutableStateOf(false) }
+    var colorFilterHex by remember { mutableStateOf<String?>(null) }
+    var cameraBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var showCameraColorPicker by remember { mutableStateOf(false) }
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicturePreview()
+    ) { bitmap ->
+        if (bitmap != null) {
+            cameraBitmap = bitmap
+            showCameraColorPicker = true
+        }
+    }
 
     LaunchedEffect(loading) {
         if (!loading && isRefreshing) {
@@ -766,13 +791,33 @@ fun TagScreen(
         if (hideCopiedTags) items.filter { it.copyCount < copyThreshold } else items
     }
 
-    val filteredItems = remember(visibleItems, query) {
+    val filteredItems = remember(visibleItems, query, colorFilterHex) {
         val tokens = tokenizeSearchQuery(query)
-        val filtered = if (tokens.isEmpty()) visibleItems else visibleItems.filter { matchesQuery(it, tokens) }
-        filtered.sortedWith(
-            compareBy<ShareTagItem> { it.materialType.ifBlank { "\uFFFF" } }
-                .thenByDescending { it.productionDate.ifBlank { "" } }
-        )
+        var filtered = if (tokens.isEmpty()) visibleItems else visibleItems.filter { matchesQuery(it, tokens) }
+        val hex = colorFilterHex
+        if (hex != null && hex.length == 6) {
+            val pr = hex.substring(0, 2).toIntOrNull(16) ?: 0
+            val pg = hex.substring(2, 4).toIntOrNull(16) ?: 0
+            val pb = hex.substring(4, 6).toIntOrNull(16) ?: 0
+            filtered = filtered
+                .mapNotNull { item ->
+                    val rawColor = item.colorValues.firstOrNull()?.takeIf { it.isNotBlank() } ?: item.colorUid
+                    val parsed = parseColorValue(rawColor) ?: return@mapNotNull null
+                    val ir = (parsed.red * 255).toInt()
+                    val ig = (parsed.green * 255).toInt()
+                    val ib = (parsed.blue * 255).toInt()
+                    val dist = rgbDistance(pr, pg, pb, ir, ig, ib)
+                    if (dist <= 100.0) Pair(item, dist) else null
+                }
+                .sortedBy { it.second }
+                .map { it.first }
+        } else {
+            filtered = filtered.sortedWith(
+                compareBy<ShareTagItem> { it.materialType.ifBlank { "\uFFFF" } }
+                    .thenByDescending { it.productionDate.ifBlank { "" } }
+            )
+        }
+        filtered
     }
 
     val categories = remember(filteredItems) { buildCategoryGroups(filteredItems) }
@@ -784,12 +829,53 @@ fun TagScreen(
             modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            AppSearchBar(
-                value = query,
-                onValueChange = { query = it },
-                placeholder = stringResource(R.string.tag_search_placeholder),
-                modifier = Modifier.fillMaxWidth()
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                AppSearchBar(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = stringResource(R.string.tag_search_placeholder),
+                    modifier = Modifier.weight(1f)
+                )
+                Box {
+                    IconButton(onClick = { cameraLauncher.launch(null) }) {
+                        Icon(
+                            imageVector = Icons.Filled.PhotoCamera,
+                            contentDescription = null,
+                            tint = if (colorFilterHex != null)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (colorFilterHex != null) {
+                        val dotColor = try {
+                            Color(android.graphics.Color.parseColor("#$colorFilterHex"))
+                        } catch (_: Exception) { Color.Gray }
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .align(Alignment.TopEnd)
+                                .clip(CircleShape)
+                                .background(dotColor)
+                                .border(1.dp, MaterialTheme.colorScheme.background, CircleShape)
+                        )
+                    }
+                }
+                if (colorFilterHex != null) {
+                    IconButton(onClick = { colorFilterHex = null }) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
 
             if (hintMessage.isNotBlank()) {
                 Text(text = hintMessage, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -912,6 +998,18 @@ fun TagScreen(
                     text = stringResource(R.string.tag_current_selection, selectedItem.sourceUid),
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            val bmp = cameraBitmap
+            if (showCameraColorPicker && bmp != null) {
+                CameraColorPickerDialog(
+                    bitmap = bmp,
+                    onColorSelected = { hex ->
+                        colorFilterHex = hex
+                        showCameraColorPicker = false
+                    },
+                    onDismiss = { showCameraColorPicker = false }
                 )
             }
 

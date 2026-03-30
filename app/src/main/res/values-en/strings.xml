@@ -200,6 +200,10 @@
     <string name="inventory_original_material_label">Original Material</string>
     <string name="inventory_notes_label">Notes</string>
     <string name="misc_status_idle">Waiting for action</string>
+    <string name="notice_guide_title">New Announcement</string>
+    <string name="notice_guide_message">There is an announcement available. It is recommended to check it in the Settings page.</string>
+    <string name="notice_guide_go">View Now</string>
+    <string name="notice_guide_skip">Got It</string>
     <string name="misc_notice_title">Notice</string>
     <string name="misc_ad_title">Advertisement</string>
     <string name="misc_version_format">Version: %1$s</string>
@@ -258,4 +262,40 @@
 
     <string name="error_mifare_unsupported">MIFARE Classic not supported</string>
     <string name="error_read_exception">Read exception</string>
+
+    <string name="tab_creality">Creality</string>
+    <string name="config_creality_feature">Creality RFID</string>
+    <string name="config_creality_feature_desc">Enable Creality filament RFID read/write page</string>
+    <string name="creality_scan_hint">Tap a tag to read automatically</string>
+    <string name="creality_write_scan_hint">Fill in filament info, then tap a tag to write</string>
+    <string name="creality_label_brand">Brand</string>
+    <string name="creality_label_type">Filament Type</string>
+    <string name="creality_label_name">Filament Name</string>
+    <string name="creality_label_color">Color</string>
+    <string name="creality_label_weight">Weight</string>
+    <string name="creality_label_serial">Serial</string>
+    <string name="creality_label_material_id">Material ID</string>
+    <string name="creality_write_ready">Ready to write — tap a tag</string>
+    <string name="creality_write_in_progress">Writing...</string>
+    <string name="creality_btn_prepare_write">Prepare Write</string>
+    <string name="creality_btn_cancel_write">Cancel Write</string>
+    <string name="creality_btn_pick_color">Pick Color</string>
+    <string name="creality_btn_camera_color">Camera Pick</string>
+    <string name="creality_color_picker_title">Pick Color</string>
+    <string name="creality_camera_color_title">Camera Color Pick</string>
+    <string name="creality_camera_color_hint">Tap anywhere on the photo to sample that color</string>
+    <string name="creality_no_material_data">No material data available</string>
+    <string name="creality_select_brand">Select Brand</string>
+    <string name="creality_select_type">Select Type</string>
+    <string name="creality_select_material">Select Material</string>
+    <string name="creality_select_weight">Select Weight</string>
+    <string name="creality_read_result_title">Last Read Result</string>
+    <string name="creality_write_config_title">Write Configuration</string>
+    <string name="creality_btn_clear">Clear</string>
+    <string name="creality_min_max_temp">%1$d–%2$d °C</string>
+    <string name="misc_cuid_test_disclaimer">This feature is not 100% accurate. Please rely on the actual AMS response as the definitive result.</string>
+    <string name="creality_page_title">Creality 3D Dedicated Read/Write</string>
+    <string name="creality_page_subtitle">This page is designed exclusively for Creality 3D filament tags. Only tag reading and writing are supported — fully independent from inventory, data, and other features.</string>
+    <string name="creality_read_success">Read successful</string>
+    <string name="creality_read_failed">No Creality tag detected</string>
 </resources>

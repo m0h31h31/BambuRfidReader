@@ -200,6 +200,10 @@
     <string name="inventory_original_material_label">原始耗材</string>
     <string name="inventory_notes_label">备注</string>
     <string name="misc_status_idle">等待操作</string>
+    <string name="notice_guide_title">有新公告</string>
+    <string name="notice_guide_message">软件有公告内容，建议前往配置页查看。</string>
+    <string name="notice_guide_go">去看看</string>
+    <string name="notice_guide_skip">知道了</string>
     <string name="misc_notice_title">公告</string>
     <string name="misc_ad_title">广告</string>
     <string name="misc_version_format">软件版本：%1$s</string>
@@ -222,6 +226,7 @@
     <string name="misc_cuid_available">此卡可用</string>
     <string name="misc_cuid_format_first">请先格式化卡</string>
     <string name="misc_cuid_test_failed">检测失败：%1$s</string>
+    <string name="misc_cuid_test_disclaimer">此功能不是 100% 准确，请以 AMS 实际响应为准。</string>
 
     <string name="copy_write_in_progress">正在写入，请保持标签稳定贴合，切勿移动...</string>
     <string name="copy_verify_in_progress">正在校验，请保持标签稳定贴合，切勿移动...</string>
@@ -258,4 +263,39 @@
 
     <string name="error_mifare_unsupported">不支持 MIFARE Classic</string>
     <string name="error_read_exception">读取异常</string>
+
+    <string name="tab_creality">创想</string>
+    <string name="config_creality_feature">创想三维 RFID</string>
+    <string name="config_creality_feature_desc">开启创想三维耗材 RFID 读写页面</string>
+    <string name="creality_scan_hint">贴上标签自动读取</string>
+    <string name="creality_write_scan_hint">填写耗材信息后贴上标签写入</string>
+    <string name="creality_label_brand">品牌</string>
+    <string name="creality_label_type">耗材类型</string>
+    <string name="creality_label_name">耗材名称</string>
+    <string name="creality_label_color">颜色</string>
+    <string name="creality_label_weight">重量</string>
+    <string name="creality_label_serial">序列号</string>
+    <string name="creality_label_material_id">材料 ID</string>
+    <string name="creality_write_ready">已准备写入，请贴上标签</string>
+    <string name="creality_write_in_progress">正在写入...</string>
+    <string name="creality_btn_prepare_write">准备写入</string>
+    <string name="creality_btn_cancel_write">取消写入</string>
+    <string name="creality_btn_pick_color">选色</string>
+    <string name="creality_btn_camera_color">相机选色</string>
+    <string name="creality_color_picker_title">选择颜色</string>
+    <string name="creality_camera_color_title">相机选色</string>
+    <string name="creality_camera_color_hint">点击图片任意位置即可取色</string>
+    <string name="creality_no_material_data">暂无耗材数据</string>
+    <string name="creality_select_brand">选择品牌</string>
+    <string name="creality_select_type">选择类型</string>
+    <string name="creality_select_material">选择耗材</string>
+    <string name="creality_select_weight">选择重量</string>
+    <string name="creality_read_result_title">上次读取结果</string>
+    <string name="creality_write_config_title">写入配置</string>
+    <string name="creality_btn_clear">清除</string>
+    <string name="creality_min_max_temp">%1$d–%2$d °C</string>
+    <string name="creality_page_title">创想三维专用读写</string>
+    <string name="creality_page_subtitle">本页专为创想三维耗材标签设计，仅支持标签读取与写入，与库存、数据等功能相互独立，互不影响。</string>
+    <string name="creality_read_success">读取成功</string>
+    <string name="creality_read_failed">未识别到创想标签</string>
 </resources>

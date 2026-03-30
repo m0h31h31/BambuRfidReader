@@ -70,6 +70,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import java.util.zip.ZipInputStream
+import javax.crypto.Cipher
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import kotlin.math.ceil
@@ -86,7 +87,9 @@ private const val LOG_TAG = "BambuRfidReader"
 private const val FILAMENT_JSON_NAME = "filaments_color_codes.json"
 private const val FILAMENTS_TYPE_MAPPING_FILE = "filaments_type_mapping.json"
 private const val FILAMENT_DB_NAME = "filaments.db"
-private const val FILAMENT_DB_VERSION = 17
+private const val FILAMENT_DB_VERSION = 18
+private const val CREALITY_MATERIAL_FILE = "creality_material_list.json"
+private const val CREALITY_MATERIAL_TABLE = "creality_materials"
 private const val FILAMENT_TABLE = "filaments"
 private const val FILAMENT_TYPE_MAPPING_TABLE = "filament_type_mapping"
 private const val FILAMENT_META_TABLE = "meta_v2"
@@ -120,6 +123,24 @@ private const val KEY_TAG_VIEW_MODE = "tag_view_mode"
 private const val KEY_COLOR_PALETTE = "color_palette"
 private const val KEY_USER_AGREEMENT_VERSION = "user_agreement_version"
 private const val CURRENT_USER_AGREEMENT_VERSION = 1
+private const val KEY_CREALITY_ENABLED = "creality_enabled"
+private const val KEY_NOTICE_GUIDE_SHOWN = "notice_guide_shown"
+
+// Creality AES keys
+private val CREALITY_KEY_DERIVE = byteArrayOf(
+    113, 51, 98, 117, 94, 116, 49, 110,
+    113, 102, 90, 40, 112, 102, 36, 49
+)
+private val CREALITY_KEY_DATA = byteArrayOf(
+    72, 64, 67, 70, 107, 82, 110, 122,
+    64, 75, 65, 116, 66, 74, 112, 50
+)
+private val CREALITY_LENGTH_TO_WEIGHT = mapOf(
+    "0330" to "1 KG", "0247" to "750 G", "0198" to "600 G",
+    "0165" to "500 G", "0082" to "250 G"
+)
+private val CREALITY_WEIGHT_TO_LENGTH: Map<String, String> =
+    CREALITY_LENGTH_TO_WEIGHT.entries.associate { (k, v) -> v to k }
 private val WRITE_HKDF_SALT = byteArrayOf(
     0x9a.toByte(), 0x75.toByte(), 0x9c.toByte(), 0xf2.toByte(),
     0xc4.toByte(), 0xf7.toByte(), 0xca.toByte(), 0xff.toByte(),
@@ -128,6 +149,40 @@ private val WRITE_HKDF_SALT = byteArrayOf(
 )
 private val WRITE_INFO_A = "RFID-A\u0000".toByteArray(Charsets.US_ASCII)
 private val WRITE_INFO_B = "RFID-B\u0000".toByteArray(Charsets.US_ASCII)
+
+@Composable
+private fun NoticeGuideDialog(
+    onDismiss: () -> Unit,
+    onGoToNotice: () -> Unit
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            androidx.compose.material3.Text(
+                text = androidx.compose.ui.res.stringResource(R.string.notice_guide_title)
+            )
+        },
+        text = {
+            androidx.compose.material3.Text(
+                text = androidx.compose.ui.res.stringResource(R.string.notice_guide_message)
+            )
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = onGoToNotice) {
+                androidx.compose.material3.Text(
+                    text = androidx.compose.ui.res.stringResource(R.string.notice_guide_go)
+                )
+            }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) {
+                androidx.compose.material3.Text(
+                    text = androidx.compose.ui.res.stringResource(R.string.notice_guide_skip)
+                )
+            }
+        }
+    )
+}
 
 @Composable
 private fun BoostReminderDialog(
@@ -410,6 +465,33 @@ data class CModifyRecoveryInfo(
     val targetKeysB: List<String>
 )
 
+data class CrealityMaterial(
+    val materialId: String,
+    val brand: String,
+    val materialType: String,
+    val name: String,
+    val minTemp: Int,
+    val maxTemp: Int,
+    val diameter: String
+)
+
+data class CrealityTagData(
+    val materialId: String,
+    val colorHex: String,
+    val weight: String,
+    val serial: String,
+    val vendorId: String,
+    val batch: String,
+    val lengthCode: String,
+    val rawPlaintext: String
+)
+
+data class CrealityWritePending(
+    val materialId: String,
+    val colorHex: String,
+    val weight: String
+)
+
 private data class WriteResumePoint(
     val sector: Int,
     val blockOffset: Int
@@ -448,6 +530,11 @@ class MainActivity : ComponentActivity() {
     private var uiStyle by mutableStateOf(AppUiStyle.NEUMORPHIC)
     private var themeMode by mutableStateOf(ThemeMode.SYSTEM)
     private var colorPalette by mutableStateOf(ColorPalette.OCEAN)
+    private var crealityEnabled by mutableStateOf(false) // 控制创想三维RFID页面显示
+    private var crealityStatusMessage by mutableStateOf("")
+    private var crealityLastTagData by mutableStateOf<CrealityTagData?>(null)
+    private var pendingCrealityWrite by mutableStateOf<CrealityWritePending?>(null)
+    private var currentActiveRoute by mutableStateOf("reader")
     private var readAllSectors by mutableStateOf(false) // 控制是否读取全部扇区，默认关闭
     private var saveKeysToFile by mutableStateOf(false) // 控制是否额外导出秘钥文件
     private var forceOverwriteImport by mutableStateOf(false) // 控制导入标签包时是否覆盖同UID文件
@@ -462,6 +549,8 @@ class MainActivity : ComponentActivity() {
     private var lastSpokenKey: String? = null
     private var shouldNavigateToReader by mutableStateOf(false)
     private var shouldNavigateToTag by mutableStateOf(false)
+    private var shouldNavigateToMisc by mutableStateOf(false)
+    private var shouldScrollToNotice by mutableStateOf(false)
     private var tagPreselectedFileName by mutableStateOf<String?>(null)
     // 原始读卡临时缓存：readTag 仅负责写入；解析函数从此读取。
     private var latestRawTagData: RawTagReadData? = null
@@ -499,9 +588,7 @@ class MainActivity : ComponentActivity() {
                 val message = importTagPackageFromZipUri(uri)
                 withContext(Dispatchers.Main) {
                     miscStatusMessage = message
-                    if (message.contains("成功") || message.contains("success", ignoreCase = true)) {
-                        refreshShareTagItemsAsync()
-                    }
+                    refreshShareTagItemsAsync()
                 }
             }
         }
@@ -589,12 +676,16 @@ class MainActivity : ComponentActivity() {
                     miscStatusMessage = "正在格式化"
                 } else if (pendingCuidTest) {
                     miscStatusMessage = "正在检测..."
+                } else if (pendingCrealityWrite != null) {
+                    crealityStatusMessage = uiString(R.string.creality_write_in_progress)
                 }
             }
             if (pendingWriteItem != null) {
                 val targetItem = pendingWriteItem
                 val writeResult = if (targetItem != null) {
-                    writeTagFromDump(tag, targetItem)
+                    writeTagFromDump(tag, targetItem) { status ->
+                        runOnUiThread { writeStatusMessage = status }
+                    }
                 } else {
                     uiString(R.string.copy_write_task_empty)
                 }
@@ -737,6 +828,31 @@ class MainActivity : ComponentActivity() {
                     }
                     pendingCuidTest = false
                 }
+            } else if (pendingCrealityWrite != null) {
+                val target = pendingCrealityWrite!!
+                val result = writeCrealityTag(tag, target)
+                runOnUiThread {
+                    crealityStatusMessage = result
+                    if (result.contains("成功") || result.contains("success", ignoreCase = true)) {
+                        playFeedbackTone(FeedbackTone.SUCCESS)
+                        pendingCrealityWrite = null
+                    } else {
+                        playFeedbackTone(FeedbackTone.FAILURE)
+                    }
+                }
+            } else if (crealityEnabled && currentActiveRoute == "creality") {
+                // On the Creality screen: only attempt Creality read, stay on current screen
+                val crealityResult = readCrealityTag(tag)
+                runOnUiThread {
+                    if (crealityResult != null) {
+                        crealityLastTagData = crealityResult
+                        crealityStatusMessage = uiString(R.string.creality_read_success)
+                        playFeedbackTone(FeedbackTone.SUCCESS)
+                    } else {
+                        crealityStatusMessage = uiString(R.string.creality_read_failed)
+                        playFeedbackTone(FeedbackTone.FAILURE)
+                    }
+                }
             } else {
                 val result = readTag(tag)
                 runOnUiThread {
@@ -786,6 +902,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         val uiPrefs = getSharedPreferences(UI_PREFS_NAME, Context.MODE_PRIVATE)
         voiceEnabled = uiPrefs.getBoolean(KEY_VOICE_ENABLED, false)
+        crealityEnabled = uiPrefs.getBoolean(KEY_CREALITY_ENABLED, false)
         inventoryEnabled = uiPrefs.getBoolean(KEY_INVENTORY_ENABLED, true)
         hideCopiedTags = uiPrefs.getBoolean(KEY_HIDE_COPIED_TAGS, true)
         dualTagMode = uiPrefs.getBoolean(KEY_DUAL_TAG_MODE, false)
@@ -807,10 +924,15 @@ class MainActivity : ComponentActivity() {
             !showUserAgreement &&
             System.currentTimeMillis() - lastBoostRemind >= BOOST_REMIND_INTERVAL_MS
         )
+        val noticeGuideShown = uiPrefs.getBoolean(KEY_NOTICE_GUIDE_SHOWN, false)
+        var showNoticeGuide by mutableStateOf(false)
         LogCollector.init(this)
         nfcAdapter = NfcAdapter.getDefaultAdapter(this)
         filamentDbHelper = FilamentDbHelper(this)
-        filamentDbHelper?.let { syncFilamentDatabase(this, it) }
+        filamentDbHelper?.let {
+            syncFilamentDatabase(this, it)
+            syncCrealityMaterialDatabase(this, it)
+        }
         ensureShareDirectory()
         refreshSelfTagCount()
         lifecycleScope.launch(Dispatchers.IO) {
@@ -883,6 +1005,26 @@ class MainActivity : ComponentActivity() {
                     onForceOverwriteImportChange = {
                         forceOverwriteImport = it
                     },
+                    crealityEnabled = crealityEnabled,
+                    onCrealityEnabledChange = { enabled ->
+                        crealityEnabled = enabled
+                        uiPrefs.edit().putBoolean(KEY_CREALITY_ENABLED, enabled).apply()
+                    },
+                    crealityTagData = crealityLastTagData,
+                    crealityStatusMessage = crealityStatusMessage,
+                    crealityWriteInProgress = pendingCrealityWrite != null,
+                    onCrealityPrepareWrite = { materialId, colorHex, weight ->
+                        pendingCrealityWrite = CrealityWritePending(materialId, colorHex, weight)
+                        crealityStatusMessage = uiString(R.string.creality_write_ready)
+                    },
+                    onCrealityCancelWrite = {
+                        pendingCrealityWrite = null
+                        crealityStatusMessage = ""
+                    },
+                    onCrealityClearTagData = {
+                        crealityLastTagData = null
+                    },
+                    onActiveRouteChange = { route -> currentActiveRoute = route },
                     inventoryEnabled = inventoryEnabled,
                     onInventoryEnabledChange = { enabled ->
                         inventoryEnabled = enabled
@@ -961,6 +1103,9 @@ class MainActivity : ComponentActivity() {
                     },
                     navigateToReader = shouldNavigateToReader,
                     navigateToTag = shouldNavigateToTag,
+                    navigateToMisc = shouldNavigateToMisc,
+                    scrollToNotice = shouldScrollToNotice,
+                    onScrollToNoticeDone = { shouldScrollToNotice = false },
                     shareTagItems = shareTagItems,
                     tagPreselectedFileName = tagPreselectedFileName,
                     shareLoading = shareLoading,
@@ -1000,6 +1145,9 @@ class MainActivity : ComponentActivity() {
                 if (shouldNavigateToTag) {
                     shouldNavigateToTag = false
                 }
+                if (shouldNavigateToMisc) {
+                    shouldNavigateToMisc = false
+                }
                 if (showUserAgreement) {
                     UserAgreementDialog(
                         onDecline = {
@@ -1010,6 +1158,10 @@ class MainActivity : ComponentActivity() {
                                 .putInt(KEY_USER_AGREEMENT_VERSION, CURRENT_USER_AGREEMENT_VERSION)
                                 .apply()
                             showUserAgreement = false
+                            if (System.currentTimeMillis() - lastBoostRemind < BOOST_REMIND_INTERVAL_MS
+                                && !noticeGuideShown) {
+                                showNoticeGuide = true
+                            }
                         }
                     )
                 }
@@ -1020,12 +1172,14 @@ class MainActivity : ComponentActivity() {
                                 .putLong(KEY_BOOST_REMIND_LAST_MS, System.currentTimeMillis())
                                 .apply()
                             showBoostReminder = false
+                            if (!noticeGuideShown) showNoticeGuide = true
                         },
                         onBoost = {
                             uiPrefs.edit()
                                 .putLong(KEY_BOOST_REMIND_LAST_MS, System.currentTimeMillis())
                                 .apply()
                             showBoostReminder = false
+                            if (!noticeGuideShown) showNoticeGuide = true
                             runCatching {
                                 startActivity(
                                     android.content.Intent(
@@ -1034,6 +1188,20 @@ class MainActivity : ComponentActivity() {
                                     )
                                 )
                             }
+                        }
+                    )
+                }
+                if (showNoticeGuide) {
+                    NoticeGuideDialog(
+                        onDismiss = {
+                            uiPrefs.edit().putBoolean(KEY_NOTICE_GUIDE_SHOWN, true).apply()
+                            showNoticeGuide = false
+                        },
+                        onGoToNotice = {
+                            uiPrefs.edit().putBoolean(KEY_NOTICE_GUIDE_SHOWN, true).apply()
+                            showNoticeGuide = false
+                            shouldNavigateToMisc = true
+                            shouldScrollToNotice = true
                         }
                     )
                 }
@@ -2216,7 +2384,7 @@ class MainActivity : ComponentActivity() {
         return blocks
     }
 
-    private fun writeTagFromDump(tag: Tag, item: ShareTagItem): String {
+    private fun writeTagFromDump(tag: Tag, item: ShareTagItem, onStatusUpdate: ((String) -> Unit)? = null): String {
         val mifare = MifareClassic.get(tag) ?: return "写入失败：标签不支持 MIFARE Classic"
         val sourceBlocks = item.rawBlocks
         if (sourceBlocks.isEmpty()) {
@@ -2277,6 +2445,8 @@ class MainActivity : ComponentActivity() {
                         if (!authenticated) {
                             return "写入失败：扇区 $sector 认证失败"
                         }
+
+                        onStatusUpdate?.invoke("正在写入扇区 ${sector + 1}/$targetSectorCount...")
 
                         val startBlock = mifare.sectorToBlock(sector)
                         val startOffset = if (sector == resumePoint.sector) {
@@ -3255,6 +3425,116 @@ class MainActivity : ComponentActivity() {
         return keyAAllFF && acDefault && keyBAllFF
     }
 
+    // ── 创想三维 Creality RFID ──────────────────────────────────────────────────
+
+    private fun deriveCrealityKeyA(uid: ByteArray): ByteArray {
+        val input = ByteArray(16) { uid[it % 4] }
+        val cipher = Cipher.getInstance("AES/ECB/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(CREALITY_KEY_DERIVE, "AES"))
+        return cipher.doFinal(input).copyOfRange(0, 6)
+    }
+
+    private fun encryptCrealityData48(data: ByteArray): ByteArray {
+        val cipher = Cipher.getInstance("AES/ECB/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(CREALITY_KEY_DATA, "AES"))
+        return cipher.doFinal(data)
+    }
+
+    private fun decryptCrealityData48(data: ByteArray): ByteArray {
+        val cipher = Cipher.getInstance("AES/ECB/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(CREALITY_KEY_DATA, "AES"))
+        return cipher.doFinal(data)
+    }
+
+    private fun buildCrealityTagBytes(materialId: String, colorHex: String, weight: String, serial: String = "000001"): ByteArray {
+        val lengthCode = CREALITY_WEIGHT_TO_LENGTH[weight] ?: "0330"
+        val raw = "AB124" +
+            "0276" +
+            "A2" +
+            "1" + materialId.uppercase(Locale.US).padStart(5, '0') +
+            "0" + colorHex.uppercase(Locale.US).trimStart('#').padStart(6, '0') +
+            lengthCode +
+            serial.padStart(6, '0') +
+            "00000000000000"
+        return raw.padEnd(48, ' ').toByteArray(Charsets.UTF_8)
+    }
+
+    private fun parseCrealityTagString(raw: String): CrealityTagData? {
+        if (raw.length < 48) return null
+        return CrealityTagData(
+            materialId = raw.substring(12, 17).trim(),
+            colorHex = raw.substring(18, 24).trim(),
+            weight = CREALITY_LENGTH_TO_WEIGHT[raw.substring(24, 28)] ?: "未知",
+            serial = "",
+            vendorId = "",
+            batch = "",
+            lengthCode = raw.substring(24, 28),
+            rawPlaintext = raw
+        )
+    }
+
+    private fun readCrealityTag(tag: Tag): CrealityTagData? {
+        val mifare = MifareClassic.get(tag) ?: return null
+        return try {
+            if (!mifare.isConnected) mifare.connect()
+            Thread.sleep(300)
+            val uid = tag.id ?: return null
+            val derivedKey = deriveCrealityKeyA(uid)
+            val ffKey = ByteArray(6) { 0xFF.toByte() }
+            val authenticated = authenticateSectorWithRetry(
+                mifare = mifare, sectorIndex = 1,
+                keysA = listOf(derivedKey, ffKey),
+                keysB = listOf(derivedKey, ffKey)
+            )
+            if (!authenticated) return null
+            val b4 = readBlockWithRetry(mifare, 4) ?: return null
+            val b5 = readBlockWithRetry(mifare, 5) ?: return null
+            val b6 = readBlockWithRetry(mifare, 6) ?: return null
+            val decrypted = decryptCrealityData48(b4 + b5 + b6)
+            parseCrealityTagString(String(decrypted, Charsets.UTF_8))
+        } catch (e: Exception) {
+            logDebug("Creality read failed: ${e.message}")
+            null
+        } finally {
+            try { mifare.close() } catch (_: Exception) {}
+        }
+    }
+
+    private fun writeCrealityTag(tag: Tag, pending: CrealityWritePending): String {
+        val mifare = MifareClassic.get(tag) ?: return "写入失败：不支持 MIFARE Classic"
+        return try {
+            if (!mifare.isConnected) mifare.connect()
+            Thread.sleep(300)
+            val uid = tag.id ?: return "写入失败：无法读取 UID"
+            val derivedKey = deriveCrealityKeyA(uid)
+            val ffKey = ByteArray(6) { 0xFF.toByte() }
+            val authenticated = authenticateSectorWithRetry(
+                mifare = mifare, sectorIndex = 1,
+                keysA = listOf(derivedKey, ffKey),
+                keysB = listOf(derivedKey, ffKey)
+            )
+            if (!authenticated) return "写入失败：扇区1 认证失败"
+            val plaintext = buildCrealityTagBytes(pending.materialId, pending.colorHex, pending.weight)
+            val encrypted = encryptCrealityData48(plaintext)
+            val b4ok = writeBlockWithRetry(mifare, 4, encrypted.copyOfRange(0, 16))
+            val b5ok = writeBlockWithRetry(mifare, 5, encrypted.copyOfRange(16, 32))
+            val b6ok = writeBlockWithRetry(mifare, 6, encrypted.copyOfRange(32, 48))
+            if (!b4ok || !b5ok || !b6ok) return "写入失败：数据块写入异常"
+            // Update trailer: KeyA=derived, access bits=FF078069, KeyB=FF×6
+            val trailer = derivedKey +
+                byteArrayOf(0xFF.toByte(), 0x07.toByte(), 0x80.toByte(), 0x69.toByte()) +
+                ffKey
+            writeBlockWithRetry(mifare, 7, trailer)
+            "写入成功"
+        } catch (e: Exception) {
+            "写入失败：${e.message.orEmpty()}"
+        } finally {
+            try { mifare.close() } catch (_: Exception) {}
+        }
+    }
+
+    // ── End Creality ─────────────────────────────────────────────────────────
+
     private fun authenticateSectorWithRetry(
         mifare: MifareClassic,
         sectorIndex: Int,
@@ -3717,6 +3997,51 @@ internal fun syncFilamentDatabase(context: Context, dbHelper: FilamentDbHelper) 
     }
 }
 
+internal fun syncCrealityMaterialDatabase(context: Context, dbHelper: FilamentDbHelper) {
+    val externalDir = context.getExternalFilesDir(null) ?: return
+    val externalFile = File(externalDir, CREALITY_MATERIAL_FILE)
+    if (!externalFile.exists()) {
+        try {
+            context.assets.open(CREALITY_MATERIAL_FILE).use { i ->
+                externalFile.outputStream().use { o -> i.copyTo(o) }
+            }
+        } catch (_: IOException) { return }
+    }
+    if (!externalFile.exists()) return
+    val jsonText = try { externalFile.readText(Charsets.UTF_8) } catch (_: IOException) { return }
+    val db = dbHelper.writableDatabase
+    val fileHash = jsonText.hashCode().toString()
+    val storedHash = dbHelper.getMetaValue(db, "creality_material_hash")
+    if (storedHash == fileHash) return
+    try {
+        val materials = JSONObject(jsonText).optJSONArray("materials") ?: return
+        db.beginTransaction()
+        try {
+            db.delete(CREALITY_MATERIAL_TABLE, null, null)
+            val values = ContentValues()
+            for (i in 0 until materials.length()) {
+                val m = materials.getJSONObject(i)
+                values.clear()
+                values.put("material_id", m.optString("id"))
+                values.put("brand", m.optString("brand"))
+                values.put("material_type", m.optString("meterialType"))
+                values.put("name", m.optString("name"))
+                values.put("min_temp", m.optInt("minTemp"))
+                values.put("max_temp", m.optInt("maxTemp"))
+                values.put("diameter", m.optString("diameter"))
+                db.insertWithOnConflict(CREALITY_MATERIAL_TABLE, null, values, SQLiteDatabase.CONFLICT_REPLACE)
+            }
+            dbHelper.setMetaValue(db, "creality_material_hash", fileHash)
+            db.setTransactionSuccessful()
+            logDebug("创想三维耗材数据写入完成: ${materials.length()} 条")
+        } finally {
+            db.endTransaction()
+        }
+    } catch (e: Exception) {
+        logDebug("同步创想三维耗材数据失败: ${e.message}")
+    }
+}
+
 private fun readFilamentJsonFromExternal(context: Context): FilamentJsonSource? {
     val externalDir = context.getExternalFilesDir(null) ?: return null
     val externalFile = File(externalDir, FILAMENT_JSON_NAME)
@@ -3860,6 +4185,18 @@ private fun resolveColorName(colorNames: JSONObject?, language: String): String 
 class FilamentDbHelper(context: Context) :
     SQLiteOpenHelper(context, FILAMENT_DB_NAME, null, FILAMENT_DB_VERSION) {
     override fun onCreate(db: SQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS $CREALITY_MATERIAL_TABLE (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                material_id TEXT NOT NULL UNIQUE,
+                brand TEXT,
+                material_type TEXT,
+                name TEXT,
+                min_temp INTEGER,
+                max_temp INTEGER,
+                diameter TEXT
+            )
+        """.trimIndent())
         db.execSQL(
             """
             CREATE TABLE IF NOT EXISTS $FILAMENT_TABLE (
@@ -4092,6 +4429,20 @@ class FilamentDbHelper(context: Context) :
                 db.execSQL("ALTER TABLE $SHARE_TAGS_TABLE ADD COLUMN production_date TEXT")
             } catch (_: Exception) { }
         }
+        if (oldVersion < 18) {
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS $CREALITY_MATERIAL_TABLE (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    material_id TEXT NOT NULL UNIQUE,
+                    brand TEXT,
+                    material_type TEXT,
+                    name TEXT,
+                    min_temp INTEGER,
+                    max_temp INTEGER,
+                    diameter TEXT
+                )
+            """.trimIndent())
+        }
     }
 
     private fun addTrayColumn(db: SQLiteDatabase, column: String, type: String) {
@@ -4257,6 +4608,63 @@ class FilamentDbHelper(context: Context) :
             values,
             SQLiteDatabase.CONFLICT_REPLACE
         )
+    }
+
+    // ── Creality material queries ──────────────────────────────────────────────
+
+    fun getCrealityBrands(db: SQLiteDatabase): List<String> {
+        val result = mutableListOf<String>()
+        val cursor = db.query(true, CREALITY_MATERIAL_TABLE, arrayOf("brand"),
+            null, null, "brand", null, "brand ASC", null)
+        cursor.use { c -> while (c.moveToNext()) { c.getString(0)?.let { result.add(it) } } }
+        return result
+    }
+
+    fun getCrealityTypes(db: SQLiteDatabase, brand: String): List<String> {
+        val result = mutableListOf<String>()
+        val cursor = db.query(true, CREALITY_MATERIAL_TABLE, arrayOf("material_type"),
+            "brand = ?", arrayOf(brand), "material_type", null, "material_type ASC", null)
+        cursor.use { c -> while (c.moveToNext()) { c.getString(0)?.let { result.add(it) } } }
+        return result
+    }
+
+    fun getCrealityMaterials(db: SQLiteDatabase, brand: String, type: String): List<CrealityMaterial> {
+        val result = mutableListOf<CrealityMaterial>()
+        val cursor = db.query(CREALITY_MATERIAL_TABLE,
+            arrayOf("material_id", "brand", "material_type", "name", "min_temp", "max_temp", "diameter"),
+            "brand = ? AND material_type = ?", arrayOf(brand, type), null, null, "name ASC")
+        cursor.use { c ->
+            while (c.moveToNext()) {
+                val mid = c.getString(0) ?: return@use
+                result.add(CrealityMaterial(
+                    materialId = mid,
+                    brand = c.getString(1).orEmpty(),
+                    materialType = c.getString(2).orEmpty(),
+                    name = c.getString(3).orEmpty(),
+                    minTemp = c.getInt(4),
+                    maxTemp = c.getInt(5),
+                    diameter = c.getString(6).orEmpty()
+                ))
+            }
+        }
+        return result
+    }
+
+    fun getCrealityMaterialById(db: SQLiteDatabase, materialId: String): CrealityMaterial? {
+        val cursor = db.query(CREALITY_MATERIAL_TABLE,
+            arrayOf("material_id", "brand", "material_type", "name", "min_temp", "max_temp", "diameter"),
+            "material_id = ?", arrayOf(materialId), null, null, null)
+        return cursor.use { c ->
+            if (c.moveToFirst()) CrealityMaterial(
+                materialId = c.getString(0).orEmpty(),
+                brand = c.getString(1).orEmpty(),
+                materialType = c.getString(2).orEmpty(),
+                name = c.getString(3).orEmpty(),
+                minTemp = c.getInt(4),
+                maxTemp = c.getInt(5),
+                diameter = c.getString(6).orEmpty()
+            ) else null
+        }
     }
 
     fun getTrayRemainingPercent(db: SQLiteDatabase, trayUid: String): Float? {

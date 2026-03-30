@@ -196,6 +196,8 @@ fun MiscScreen(
     cuidTestInProgress: Boolean = false,
     onEnqueueCuidTest: () -> String = { "" },
     onCancelCuidTest: () -> String = { "" },
+    crealityEnabled: Boolean = false,
+    onCrealityEnabledChange: (Boolean) -> Unit = {},
     inventoryEnabled: Boolean = false,
     onInventoryEnabledChange: (Boolean) -> Unit = {},
     hideCopiedTags: Boolean = true,
@@ -204,6 +206,8 @@ fun MiscScreen(
     onDualTagModeChange: (Boolean) -> Unit = {},
     tagViewMode: String = "list",
     onTagViewModeChange: (String) -> Unit = {},
+    scrollToNotice: Boolean = false,
+    onScrollToNoticeDone: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -226,6 +230,8 @@ fun MiscScreen(
         normalizeConfigMessage(appConfigAdMessage)
     }
     var message by remember { mutableStateOf("") }
+    var showCuidDisclaimerDialog by remember { mutableStateOf(false) }
+    val scrollState = androidx.compose.foundation.rememberScrollState()
     var visibleStatusMessage by remember { mutableStateOf("") }
     var lastMiscStatusMessage by remember { mutableStateOf(miscStatusMessage) }
     var lastPageMessage by remember { mutableStateOf(message) }
@@ -235,6 +241,13 @@ fun MiscScreen(
     }
     var adExpanded by remember {
         mutableStateOf(miscPrefs.getBoolean(KEY_AD_EXPANDED, true))
+    }
+
+    LaunchedEffect(scrollToNotice) {
+        if (scrollToNotice) {
+            noticeExpanded = true
+            onScrollToNoticeDone()
+        }
     }
     var showPaletteDialog by remember { mutableStateOf(false) }
     var showReadAllSectorsDialog by remember { mutableStateOf(false) }
@@ -398,7 +411,7 @@ fun MiscScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(scrollState)
                     .padding(horizontal = 12.dp)
                     .padding(bottom = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -702,6 +715,28 @@ fun MiscScreen(
                                 modifier = Modifier.weight(1f),
                                 verticalArrangement = Arrangement.spacedBy(2.dp)
                             ) {
+                                Text(text = stringResource(R.string.config_creality_feature))
+                                Text(
+                                    text = stringResource(R.string.config_creality_feature_desc),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            AppSwitch(
+                                checked = crealityEnabled,
+                                onCheckedChange = { onCrealityEnabledChange(it) }
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                        ) {
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
                                 Text(text = stringResource(R.string.config_inventory_feature))
                                 Text(
                                     text = stringResource(R.string.config_inventory_feature_desc),
@@ -861,6 +896,29 @@ fun MiscScreen(
                     )
                 }
 
+                if (showCuidDisclaimerDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showCuidDisclaimerDialog = false },
+                        title = { Text(text = stringResource(R.string.misc_cuid_test)) },
+                        text = { Text(text = stringResource(R.string.misc_cuid_test_disclaimer)) },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    showCuidDisclaimerDialog = false
+                                    message = onEnqueueCuidTest()
+                                }
+                            ) {
+                                Text(text = stringResource(R.string.action_confirm))
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showCuidDisclaimerDialog = false }) {
+                                Text(text = stringResource(R.string.action_cancel))
+                            }
+                        }
+                    )
+                }
+
                 if (showClearShareTagsConfirmDialog) {
                     AlertDialog(
                         onDismissRequest = { showClearShareTagsConfirmDialog = false },
@@ -917,7 +975,8 @@ fun MiscScreen(
                             message = if (cuidTestInProgress) {
                                 onCancelCuidTest()
                             } else {
-                                onEnqueueCuidTest()
+                                showCuidDisclaimerDialog = true
+                                ""
                             }
                         },
                         modifier = Modifier.weight(1f)

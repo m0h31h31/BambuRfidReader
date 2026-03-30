@@ -33,6 +33,10 @@ object ConfigManager {
     
     private const val FILAMENTS_TYPE_MAPPING_PRIMARY = "https://gitee.com/JackMoHeiHei/BambuRfidReader/raw/master/app/src/main/assets/filaments_type_mapping.json"
     private const val FILAMENTS_TYPE_MAPPING_BACKUP = "https://raw.githubusercontent.com/m0h31h31/BambuRfidReader/refs/heads/master/app/src/main/assets/filaments_type_mapping.json"
+
+    private const val CREALITY_MATERIAL_FILE = "creality_material_list.json"
+    private const val CREALITY_MATERIAL_PRIMARY = "https://gitee.com/JackMoHeiHei/BambuRfidReader/raw/master/app/src/main/assets/creality_material_list.json"
+    private const val CREALITY_MATERIAL_BACKUP = "https://raw.githubusercontent.com/m0h31h31/BambuRfidReader/refs/heads/master/app/src/main/assets/creality_material_list.json"
     
     /**
      * 检查并更新配置文件
@@ -47,6 +51,9 @@ object ConfigManager {
             
             // 检查耗材类型映射文件
             checkFilamentsTypeMapping(context, onUpdateAvailable)
+
+            // 检查创想三维耗材列表
+            checkCrealityMaterialList(context, onUpdateAvailable)
         }
     }
     
@@ -279,6 +286,35 @@ object ConfigManager {
             com.m0h31h31.bamburfidreader.logDebug("Error parsing AppConfig userCountEndpoint: ${e.message}")
             null
         }) ?: defaultValue
+    }
+
+    /**
+     * 检查创想三维耗材列表
+     */
+    private suspend fun checkCrealityMaterialList(context: Context, onUpdateAvailable: (String, () -> Unit) -> Unit) {
+        try {
+            val remoteContent = NetworkUtils.fetchFile(CREALITY_MATERIAL_PRIMARY, CREALITY_MATERIAL_BACKUP)
+            if (remoteContent != null) {
+                val remoteHash = NetworkUtils.calculateHash(remoteContent)
+                val localHash = getLocalFileHash(context, CREALITY_MATERIAL_FILE)
+                if (remoteHash != localHash) {
+                    withContext(Dispatchers.Main) {
+                        onUpdateAvailable("创想三维耗材列表有更新，是否更新？") {
+                            saveFile(context, CREALITY_MATERIAL_FILE, remoteContent)
+                            try {
+                                val dbHelper = com.m0h31h31.bamburfidreader.FilamentDbHelper(context)
+                                com.m0h31h31.bamburfidreader.syncCrealityMaterialDatabase(context, dbHelper)
+                                com.m0h31h31.bamburfidreader.logDebug("创想三维耗材列表更新成功，数据库已更新")
+                            } catch (e: Exception) {
+                                com.m0h31h31.bamburfidreader.logDebug("更新创想三维数据库失败: ${e.message}")
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            com.m0h31h31.bamburfidreader.logDebug("Error checking creality_material_list.json: ${e.message}")
+        }
     }
 
     private fun parseLinkConfig(

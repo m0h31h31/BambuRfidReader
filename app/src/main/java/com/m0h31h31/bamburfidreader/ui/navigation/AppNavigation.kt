@@ -42,6 +42,8 @@ import com.m0h31h31.bamburfidreader.ui.screens.MiscScreen
 import com.m0h31h31.bamburfidreader.ui.screens.DataScreen
 import com.m0h31h31.bamburfidreader.ui.screens.NdefWriteRequest
 import com.m0h31h31.bamburfidreader.ui.screens.WriteScreen
+import com.m0h31h31.bamburfidreader.ui.screens.CrealityScreen
+import com.m0h31h31.bamburfidreader.CrealityTagData
 import com.m0h31h31.bamburfidreader.ui.theme.AppUiStyle
 import com.m0h31h31.bamburfidreader.ui.theme.ColorPalette
 import com.m0h31h31.bamburfidreader.ui.theme.LocalAppUiStyle
@@ -60,7 +62,8 @@ private val topDestinations = listOf(
     TopDestination("reader", R.string.tab_reader, R.drawable.shibie),
     TopDestination("inventory", R.string.tab_inventory, R.drawable.kucun),
     TopDestination("data", R.string.tab_data, R.drawable.shuju),
-    TopDestination("tag", R.string.tab_tag, R.drawable.fuzhi),
+    TopDestination("tag", R.string.tab_tag, R.drawable.bambu),
+    TopDestination("creality", R.string.tab_creality, R.drawable.chuangxiang),
     TopDestination("misc", R.string.tab_misc, R.drawable.zaxiang)
 )
 
@@ -85,6 +88,14 @@ fun AppNavigation(
     onSaveKeysToFileChange: (Boolean) -> Unit,
     onFormatTagDebugEnabledChange: (Boolean) -> Unit,
     onForceOverwriteImportChange: (Boolean) -> Unit,
+    crealityEnabled: Boolean = false,
+    onCrealityEnabledChange: (Boolean) -> Unit = {},
+    crealityTagData: CrealityTagData? = null,
+    crealityStatusMessage: String = "",
+    crealityWriteInProgress: Boolean = false,
+    onCrealityPrepareWrite: (String, String, String) -> Unit = { _, _, _ -> },
+    onCrealityCancelWrite: () -> Unit = {},
+    onCrealityClearTagData: () -> Unit = {},
     inventoryEnabled: Boolean = false,
     onInventoryEnabledChange: (Boolean) -> Unit = {},
     hideCopiedTags: Boolean = true,
@@ -113,6 +124,9 @@ fun AppNavigation(
     onSelectImportTagPackage: () -> String,
     navigateToReader: Boolean = false,
     navigateToTag: Boolean = false,
+    navigateToMisc: Boolean = false,
+    scrollToNotice: Boolean = false,
+    onScrollToNoticeDone: () -> Unit = {},
     showRecoveryAction: Boolean = false,
     onAttemptRecovery: () -> Unit,
     shareTagItems: List<ShareTagItem>,
@@ -130,19 +144,37 @@ fun AppNavigation(
     cModifyInProgress: Boolean = false,
     cModifyRecoveryInfo: com.m0h31h31.bamburfidreader.CModifyRecoveryInfo? = null,
     onDismissCModifyRecovery: () -> Unit = {},
-    onStartNdefWrite: (NdefWriteRequest) -> String
+    onStartNdefWrite: (NdefWriteRequest) -> String,
+    onActiveRouteChange: (String) -> Unit = {}
 ) {
     val resolvedUiStyle = LocalAppUiStyle.current
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
-    val visibleDestinations = remember(inventoryEnabled) {
-        if (inventoryEnabled) topDestinations
-        else topDestinations.filter { it.route != "inventory" && it.route != "data" }
+
+    LaunchedEffect(currentRoute) {
+        onActiveRouteChange(currentRoute ?: "reader")
+    }
+    val visibleDestinations = remember(inventoryEnabled, crealityEnabled) {
+        topDestinations.filter { dest ->
+            when (dest.route) {
+                "inventory", "data" -> inventoryEnabled
+                "creality" -> crealityEnabled
+                else -> true
+            }
+        }
     }
 
     LaunchedEffect(inventoryEnabled) {
         if (!inventoryEnabled && (currentRoute == "inventory" || currentRoute == "data")) {
+            navController.navigate("reader") {
+                popUpTo(navController.graph.findStartDestination().id) { saveState = false }
+                launchSingleTop = true
+            }
+        }
+    }
+    LaunchedEffect(crealityEnabled) {
+        if (!crealityEnabled && currentRoute == "creality") {
             navController.navigate("reader") {
                 popUpTo(navController.graph.findStartDestination().id) { saveState = false }
                 launchSingleTop = true
@@ -170,7 +202,7 @@ fun AppNavigation(
         }
     }
     
-    // 支持外部触发跳转到 tag / reader
+    // 支持外部触发跳转到 tag / reader / misc
     if (navigateToTag && currentRoute != "tag") {
         navController.navigate("tag") {
             popUpTo(navController.graph.findStartDestination().id) {
@@ -187,6 +219,14 @@ fun AppNavigation(
             launchSingleTop = true
             restoreState = true
         }
+    } else if (navigateToMisc && currentRoute != "misc") {
+        navController.navigate("misc") {
+            popUpTo(navController.graph.findStartDestination().id) {
+                saveState = true
+            }
+            launchSingleTop = true
+            restoreState = true
+        }
     }
 
     Scaffold(
@@ -196,7 +236,7 @@ fun AppNavigation(
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
             if (resolvedUiStyle == AppUiStyle.MIUIX) {
-                key(inventoryEnabled) {
+                key(inventoryEnabled, crealityEnabled) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -227,7 +267,7 @@ fun AppNavigation(
                 }
                 } // key
             } else {
-                key(inventoryEnabled) {
+                key(inventoryEnabled, crealityEnabled) {
                 NeuPanel(
                     modifier = Modifier
                         .padding(horizontal = 12.dp, vertical = 8.dp)
@@ -331,6 +371,17 @@ fun AppNavigation(
                     onRefresh = onTagScreenEnter
                 )
             }
+            composable("creality") {
+                CrealityScreen(
+                    dbHelper = dbHelper,
+                    crealityTagData = crealityTagData,
+                    crealityStatusMessage = crealityStatusMessage,
+                    writeInProgress = crealityWriteInProgress,
+                    onPrepareWrite = onCrealityPrepareWrite,
+                    onCancelWrite = onCrealityCancelWrite,
+                    onClearTagData = onCrealityClearTagData
+                )
+            }
             composable("misc") {
                             val context = LocalContext.current
                             val appConfigMessage = ConfigManager.getAppConfigMessage(context)
@@ -338,6 +389,8 @@ fun AppNavigation(
                             val appConfigBoostLink = ConfigManager.getAppConfigBoostLink(context)
                             val appConfigLogoLinks = ConfigManager.getAppConfigLogoLinks(context)
                             MiscScreen(
+                                crealityEnabled = crealityEnabled,
+                                onCrealityEnabledChange = onCrealityEnabledChange,
                                 inventoryEnabled = inventoryEnabled,
                                 onInventoryEnabledChange = onInventoryEnabledChange,
                                 hideCopiedTags = hideCopiedTags,
@@ -378,7 +431,9 @@ fun AppNavigation(
                                 onFormatTagDebugEnabledChange = onFormatTagDebugEnabledChange,
                                 forceOverwriteImport = forceOverwriteImport,
                                 onForceOverwriteImportChange = onForceOverwriteImportChange,
-                                formatInProgress = formatInProgress
+                                formatInProgress = formatInProgress,
+                                scrollToNotice = scrollToNotice,
+                                onScrollToNoticeDone = onScrollToNoticeDone
                             )
                         }
         }
