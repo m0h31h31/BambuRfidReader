@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew assembleDebug)",
+      "Bash(export JAVA_HOME=\"C:/Program Files/Android/Android Studio/jbr\")",
+      "Read(//c/Program Files/Android/**)",
+      "Bash(find /c -name java.exe -path */jbr/*)",
+      "Bash(cmd /c \"gradlew.bat assembleDebug\")",
+      "Bash(cmd /c \"gradlew.bat assembleDebug 2>&1\")",
+      "Bash(find E:AndroidStudioProjectsBambuRfidReader -name *AppSwitch* -o -name *Switch*)",
+      "Bash(find . -path *ui/components* -name *.kt)",
+      "Bash(grep -v \"//.*onCreate\\\\|//.*onUpgrade\")"
+    ]
+  }
+}
