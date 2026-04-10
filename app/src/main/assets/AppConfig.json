@@ -12,6 +12,18 @@
         "type": "url",
         "value": "https://brr.jacki.cn/api/tags"
     },
+    "anomalyReportEndpoint": {
+        "type": "url",
+        "value": "https://brr.jacki.cn/api/anomaly"
+    },
+    "anomalyUidsEndpoint": {
+        "type": "url",
+        "value": "https://brr.jacki.cn/api/anomaly/uids"
+    },
+    "nicknameEndpoint": {
+        "type": "url",
+        "value": "https://brr.jacki.cn/api/nickname"
+    },
     "logoLinks": {
         "makerworld": {
             "type": "scheme",

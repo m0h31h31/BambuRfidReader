@@ -320,5 +320,4 @@
     <string name="misc_nickname_save_failed">Failed to save nickname, please try again later</string>
     <string name="auto_share_disable_confirm_title">Confirm Disable</string>
     <string name="auto_share_disable_confirm_message">After successfully sharing tags, you can enjoy shared data from others. Without sharing, you cannot access others\' shared data. Are you sure you want to disable it?</string>
-    <string name="action_confirm">Confirm</string>
 </resources>

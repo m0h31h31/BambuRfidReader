@@ -323,7 +323,6 @@
     <string name="misc_nickname_save_failed">昵称保存失败，请稍后重试</string>
     <string name="auto_share_disable_confirm_title">确认关闭</string>
     <string name="auto_share_disable_confirm_message">成功共享标签后，你可以享受他人的共享数据，否则无法获取其他人共享的数据！你确认关闭吗？</string>
-    <string name="action_confirm">确认</string>
     <string name="creality_read_result_title">上次读取结果</string>
     <string name="creality_write_config_title">写入配置</string>
     <string name="creality_btn_clear">清除</string>
