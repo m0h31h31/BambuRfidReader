@@ -1,6 +1,6 @@
 <resources>
-    <string name="app_name">Bambu RFID Reader</string>
-    <string name="app_title">Bambu RFID Reader</string>
+    <string name="app_name">M0 RFID</string>
+    <string name="app_title">m0h31h31 RFID</string>
     <string name="user_agreement_title">Software Use Agreement</string>
     <string name="user_agreement_summary">On first install, you must read and accept the agreement below before using the app.</string>
     <string name="user_agreement_accept">Accept and Continue</string>
@@ -190,6 +190,7 @@
     <string name="config_auto_detect_brand_desc">Auto-detect brand on tap and navigate to the matching reader (Bambu / Creality / Snapmaker)</string>
     <string name="config_inventory_feature">Inventory &amp; Data</string>
     <string name="config_inventory_feature_desc">Enable to show inventory and data pages</string>
+    <string name="config_auto_share_tag_desc">Automatically upload to shared server after reading full Bambu/Creality data</string>
     <string name="config_hide_copied_tags">Hide Copied Tags</string>
     <string name="config_hide_copied_tags_desc">Hide tags that have been successfully copied</string>
     <string name="config_dual_tag_mode">Dual-tag Mode</string>
@@ -270,6 +271,7 @@
     <string name="config_bambu_feature_desc">Enable Bambu filament tag copy page</string>
     <string name="config_creality_feature">Creality RFID</string>
     <string name="config_creality_feature_desc">Enable Creality filament RFID read/write page</string>
+    <string name="snapmaker_weight_label">Weight</string>
     <string name="creality_scan_hint">Tap a tag to read automatically</string>
     <string name="creality_write_scan_hint">Fill in filament info, then tap a tag to write</string>
     <string name="creality_label_brand">Brand</string>
@@ -320,4 +322,13 @@
     <string name="misc_nickname_save_failed">Failed to save nickname, please try again later</string>
     <string name="auto_share_disable_confirm_title">Confirm Disable</string>
     <string name="auto_share_disable_confirm_message">After successfully sharing tags, you can enjoy shared data from others. Without sharing, you cannot access others\' shared data. Are you sure you want to disable it?</string>
+    <string name="config_auto_share_tag">Auto Share Tags</string>
+    <string name="tab_snapmaker">SnapMaker</string>
+    <string name="config_snapmaker_feature">SnapMaker U1 RFID</string>
+    <string name="config_snapmaker_feature_desc">Open SnapMaker U1 Filament Tag Clone Page</string>
+    <string name="misc_import_bambu_tag_package">Import Bambu Tag Package</string>
+    <string name="misc_import_snapmaker_tag_package">Import SnapMaker U1 Tag Package</string>
+    <string name="misc_import_tag_type_title">Select Import Type</string>
+    <string name="snapmaker_tag_screen_hint">Select Tag and Write to Card</string>
+    <string name="snapmaker_diameter_label">Filament Diameter</string>
 </resources>

@@ -1,6 +1,6 @@
 <resources>
-    <string name="app_name">Bambu RFID Reader</string>
-    <string name="app_title">Bambu RFID Reader</string>
+    <string name="app_name">M0 RFID</string>
+    <string name="app_title">m0h31h31 RFID</string>
     <string name="user_agreement_content">欢迎使用本软件。请在使用前仔细阅读并理解以下内容。您点击“同意并继续”即视为您已阅读、理解并接受本协议全部条款。\n\n1. 软件性质\n本软件为开源软件，主要用于 NFC、RFID、标签数据处理与相关技术的学习、研究、交流与非商业测试。\n本软件源码、部分配置与相关资料可从公开仓库获取或同步，开发者可能通过远程仓库下发配置文件、公告、广告位或其他与软件运行相关的公开配置内容。\n\n2. 统计说明\n为了解软件安装量、活跃情况与版本分布，本软件包含基础用户量统计功能。软件在安装后首次启动及后续启动时，可能向服务器发送一个本地生成的唯一安装标识及必要的版本、设备基础信息，用于统计安装量、启动量、版本兼容性与运维分析。\n该统计功能不以识别自然人身份为目的，开发者不会承诺也不会保证其绝对匿名；如您不同意此类统计，请勿使用本软件。\n\n3. 配置拉取说明\n本软件可能从远程仓库或服务器拉取公开配置文件，用于更新颜色映射、类型映射、公告、广告、跳转链接及其他运行配置。开发者不保证远程配置持续可用、绝对准确、绝对安全、无延迟或永久兼容，因远程配置变更、网络异常、缓存延迟、第三方服务故障等引起的问题，均需由使用者自行判断风险。\n\n4. 风险与免责\n本软件按“现状”提供，不附带任何明示或默示担保，包括但不限于可用性、稳定性、适销性、特定用途适用性、数据完整性与安全性保证。\n使用本软件可能涉及 NFC 读卡、写卡、格式化标签、导入导出文件、覆盖数据、访问网络资源等操作，存在但不限于以下风险：标签损坏、写入失败、数据丢失、库存错误、设备兼容性问题、配置异常、第三方链接跳转风险、文件覆盖、误操作及其他不可预见后果。\n对于因使用、误用、依赖或无法使用本软件所造成的任何直接、间接、附带、特殊、惩罚性或结果性损失，开发者、贡献者及相关分发者均不承担责任。\n\n5. 使用限制\n请仅在您有权操作的设备、标签、数据与环境中使用本软件。请勿将本软件用于违法违规、侵权、破坏性、批量攻击、未授权写卡、绕过权限控制或其他不当用途。因使用者行为引发的任何法律责任、财产损失或第三方争议，均由使用者自行承担。\n\n6. 开源与交流说明\n欢迎基于开源协议进行学习、研究、改进与交流，但请自行审查代码与构建产物，自行承担编译、修改、分发和使用带来的全部风险。第三方依赖、仓库内容、外部链接与远程配置不当然受开发者永久维护或担保。\n\n7. 协议更新\n开发者可根据功能、统计、配置机制或法律合规需要对本协议进行更新。更新后的协议可能在新版本首次启动时再次展示。若您不同意更新后的内容，请停止使用本软件。\n\n如您不同意上述任一条款，请点击“不同意并退出”。继续使用即表示您已充分知悉并接受本软件的开源属性、统计功能、远程配置机制及全部相关风险与免责条款。</string>
     <string name="action_inventory">库存</string>
     <string name="action_voice_settings">语音设置</string>
@@ -193,6 +193,7 @@
     <string name="config_auto_detect_brand_desc">刷卡时自动检测品牌并跳转到对应识别页（拓竹/创想/快造）</string>
     <string name="config_inventory_feature">库存与数据功能</string>
     <string name="config_inventory_feature_desc">开启后显示库存和数据页面</string>
+    <string name="config_auto_share_tag_desc">读取拓竹/快造完整数据后自动上传到共享服务器</string>
     <string name="config_hide_copied_tags">隐藏已复制标签</string>
     <string name="config_hide_copied_tags_desc">隐藏已成功复制的标签</string>
     <string name="config_dual_tag_mode">双标签模式</string>
@@ -263,6 +264,7 @@
     <string name="config_bambu_feature_desc">开启拓竹耗材标签复制页面</string>
     <string name="config_creality_feature">创想三维 RFID</string>
     <string name="config_creality_feature_desc">开启创想三维耗材 RFID 读写页面</string>
+    <string name="snapmaker_weight_label">重量</string>
     <string name="creality_scan_hint">贴上标签自动读取</string>
     <string name="creality_write_scan_hint">填写耗材信息后贴上标签写入</string>
     <string name="creality_label_brand">品牌</string>
@@ -313,4 +315,13 @@
     <string name="misc_nickname_save_failed">昵称保存失败，请稍后重试</string>
     <string name="auto_share_disable_confirm_title">确认关闭</string>
     <string name="auto_share_disable_confirm_message">成功共享标签后，你可以享受他人的共享数据，否则无法获取其他人共享的数据！你确认关闭吗？</string>
+    <string name="config_auto_share_tag">自动共享标签</string>
+    <string name="tab_snapmaker">快造</string>
+    <string name="config_snapmaker_feature">快造U1 RFID</string>
+    <string name="config_snapmaker_feature_desc">开启快造U1耗材标签复制页面</string>
+    <string name="misc_import_bambu_tag_package">导入拓竹标签包</string>
+    <string name="misc_import_snapmaker_tag_package">导入快造U1标签包</string>
+    <string name="misc_import_tag_type_title">选择导入类型</string>
+    <string name="snapmaker_tag_screen_hint">选择标签后贴卡写入</string>
+    <string name="snapmaker_diameter_label">线径</string>
 </resources>

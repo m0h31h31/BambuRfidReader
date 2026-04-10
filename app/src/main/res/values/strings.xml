@@ -1,6 +1,6 @@
 <resources>
-    <string name="app_name">Bambu RFID Reader</string>
-    <string name="app_title">Bambu RFID Reader</string>
+    <string name="app_name">M0 RFID</string>
+    <string name="app_title">m0h31h31 RFID</string>
     <string name="user_agreement_title">软件使用协议</string>
     <string name="user_agreement_summary">首次安装需先阅读并同意以下协议，同意后方可继续使用本软件。</string>
     <string name="user_agreement_accept">同意并继续</string>
