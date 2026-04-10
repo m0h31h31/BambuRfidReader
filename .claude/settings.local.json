@@ -11,7 +11,8 @@
       "Bash(find . -path *ui/components* -name *.kt)",
       "Bash(grep -v \"//.*onCreate\\\\|//.*onUpgrade\")",
       "Bash(xargs wc:*)",
-      "Bash(xargs grep:*)"
+      "Bash(xargs grep:*)",
+      "Bash(ls C:/Users/jack8/StudioProjects/BambuRfidReader/*.md)"
     ]
   }
 }
