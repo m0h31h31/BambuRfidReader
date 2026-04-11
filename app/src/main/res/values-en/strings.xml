@@ -325,7 +325,7 @@
     <string name="update_dialog_no_changelog">No release notes available</string>
     <string name="update_action_now">Update now</string>
     <string name="update_action_later">Remind me later</string>
-    <string name="update_download_notification_title">BambuRfidReader update</string>
+    <string name="update_download_notification_title">APP update</string>
     <string name="update_downloading">Downloading new version…</string>
     <string name="update_need_permission">Please allow installation from unknown sources in system settings first</string>
     <string name="update_badge">Update available</string>

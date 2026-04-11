@@ -326,7 +326,7 @@
     <string name="update_dialog_no_changelog">暂无更新说明</string>
     <string name="update_action_now">立即更新</string>
     <string name="update_action_later">稍后提醒</string>
-    <string name="update_download_notification_title">BambuRfidReader 更新</string>
+    <string name="update_download_notification_title">APP 更新</string>
     <string name="update_downloading">正在下载新版本…</string>
     <string name="update_need_permission">请先在系统设置中允许安装未知来源应用</string>
     <string name="update_badge">有新版本</string>
