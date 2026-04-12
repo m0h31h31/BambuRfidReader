@@ -170,7 +170,7 @@ fun ReaderScreen(
     readerCrealityMaterial: CrealityMaterial? = null,
     readerSnapmakerTagData: SnapmakerTagData? = null,
     readerBrandStatus: String = "",
-    onReportAnomaly: ((trayUid: String, cardUid: String) -> Unit)? = null,
+    onReportAnomaly: ((cardUid: String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val uiStyle = LocalAppUiStyle.current
@@ -618,11 +618,10 @@ fun ReaderScreen(
                         confirmButton = {
                             TextButton(
                                 onClick = {
-                                    val trayUid = state.trayUidHex
                                     val cardUid = state.uidHex
                                     showAnomalyConfirm = false
                                     coroutineScope.launch {
-                                        onReportAnomaly(trayUid, cardUid)
+                                        onReportAnomaly(cardUid)
                                         anomalyReportResult = reportSuccessText
                                         kotlinx.coroutines.delay(3000)
                                         anomalyReportResult = ""
@@ -871,7 +870,7 @@ fun ReaderScreen(
                                             horizontalAlignment = Alignment.CenterHorizontally,
                                             verticalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
-                                        if (onReportAnomaly != null && state.trayUidHex.isNotBlank()) {
+                                        if (onReportAnomaly != null && state.uidHex.isNotBlank()) {
                                             Box(
                                                 modifier = Modifier
                                                     .width(74.dp)

@@ -128,6 +128,78 @@ object NetworkUtils {
         }
     }
 
+    /**
+     * GET，返回 JSONObject。网络或解析失败返回 null。
+     */
+    suspend fun getJson(
+        urlString: String,
+        params: Map<String, String> = emptyMap(),
+        headers: Map<String, String> = emptyMap()
+    ): JSONObject? {
+        val query = params.entries.joinToString("&") { "${it.key}=${java.net.URLEncoder.encode(it.value, "UTF-8")}" }
+        val fullUrl = if (query.isBlank()) urlString else "$urlString?$query"
+        return getJson(fullUrl, headers)
+    }
+
+    /**
+     * POST JSON，带下载进度回调，流式写入目标文件。
+     * 成功返回 (200-299, null)，业务错误返回 (4xx/5xx, errorBodyBytes)，网络异常返回 null。
+     * onProgress(0..100) 在 IO 线程回调，调用方自行 post 到主线程。
+     */
+    suspend fun postJsonDownloadToFile(
+        urlString: String,
+        payload: JSONObject,
+        destFile: java.io.File,
+        headers: Map<String, String> = emptyMap(),
+        onProgress: ((Int) -> Unit)? = null
+    ): Pair<Int, ByteArray?>? {
+        return withContext(Dispatchers.IO) {
+            com.m0h31h31.bamburfidreader.logDebug("NetworkUtils POST(download) $urlString")
+            val url = URL(urlString)
+            val connection = url.openConnection() as HttpURLConnection
+            connection.apply {
+                connectTimeout = TIMEOUT_MS
+                readTimeout = 120000
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+                headers.forEach { (k, v) -> if (v.isNotBlank()) setRequestProperty(k, v) }
+            }
+            try {
+                connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+                val code = connection.responseCode
+                if (code !in 200..299) {
+                    val errBody = connection.errorStream?.use { it.readBytes() } ?: ByteArray(0)
+                    com.m0h31h31.bamburfidreader.logDebug("NetworkUtils POST(download) → $code")
+                    return@withContext Pair(code, errBody)
+                }
+                val total = connection.contentLengthLong
+                var downloaded = 0L
+                val buf = ByteArray(8192)
+                destFile.outputStream().use { out ->
+                    connection.inputStream.use { inp ->
+                        var read: Int
+                        while (inp.read(buf).also { read = it } != -1) {
+                            out.write(buf, 0, read)
+                            downloaded += read
+                            if (total > 0) {
+                                onProgress?.invoke((downloaded * 100 / total).toInt().coerceIn(0, 99))
+                            }
+                        }
+                    }
+                }
+                onProgress?.invoke(100)
+                com.m0h31h31.bamburfidreader.logDebug("NetworkUtils POST(download) → $code size=${downloaded}B")
+                Pair(code, null)
+            } catch (e: Exception) {
+                com.m0h31h31.bamburfidreader.logDebug("NetworkUtils POST(download) exception: ${e.message}")
+                null
+            } finally {
+                connection.disconnect()
+            }
+        }
+    }
+
     suspend fun postJson(
         urlString: String,
         payload: JSONObject,

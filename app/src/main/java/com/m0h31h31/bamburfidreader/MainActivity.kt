@@ -1398,6 +1398,16 @@ class MainActivity : ComponentActivity() {
                         autoShareTag = enabled
                         uiPrefs.edit().putBoolean(KEY_AUTO_SHARE_TAG, enabled).apply()
                     },
+                    onCheckDownloadPermission = {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            checkTagDownloadPermission()
+                        }
+                    },
+                    onDownloadTagPackage = { brand, onProgress, onImportStatus ->
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            downloadAndImportTagPackage(brand, onProgress, onImportStatus)
+                        }
+                    },
                     hideCopiedTags = hideCopiedTags,
                     onHideCopiedTagsChange = { enabled ->
                         hideCopiedTags = enabled
@@ -1483,9 +1493,9 @@ class MainActivity : ComponentActivity() {
                     cModifyInProgress = pendingCModifyItem != null,
                     formatInProgress = pendingClearFuid,
                     anomalyUids = anomalyUids,
-                    onReportAnomaly = { trayUid, cardUid ->
+                    onReportAnomaly = { cardUid ->
                         lifecycleScope.launch(Dispatchers.IO) {
-                            com.m0h31h31.bamburfidreader.utils.AnalyticsReporter.reportAnomaly(applicationContext, trayUid, cardUid)
+                            com.m0h31h31.bamburfidreader.utils.AnalyticsReporter.reportAnomaly(applicationContext, cardUid)
                         }
                     },
                     onTagScreenEnter = {
@@ -2026,7 +2036,7 @@ class MainActivity : ComponentActivity() {
                 .toMutableSet()
 
             val zipEntries = extractZipEntries(uri)
-            if (zipEntries.isEmpty() && !cacheDir.listFiles()?.any { it.name.startsWith("import_") } ?: false) {
+            if (zipEntries.isEmpty() && !(cacheDir.listFiles()?.any { it.name.startsWith("import_") } ?: false)) {
                 return "读取标签包失败（文件损坏或密码错误）"
             }
             for ((entryName, bytes) in zipEntries) {
@@ -2088,6 +2098,106 @@ class MainActivity : ComponentActivity() {
         }
     }
     
+    // ── 在线下载共享标签包 ──────────────────────────────────────────────────────
+
+    // ── 在线下载权限检查 ──────────────────────────────────────────────────────
+
+    /** 检查当前设备是否有资格下载标签包。IO 线程调用。返回 null 表示允许，非 null 为拒绝原因。 */
+    private fun checkTagDownloadPermission(): String? {
+        val installId = com.m0h31h31.bamburfidreader.utils.AnalyticsReporter.getInstallId(this)
+        val endpoint = com.m0h31h31.bamburfidreader.utils.ConfigManager.getTagCanDownloadEndpoint(this)
+        return try {
+            val url = java.net.URL("$endpoint?install_id=${java.net.URLEncoder.encode(installId, "UTF-8")}")
+            val conn = url.openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 10000
+            conn.readTimeout = 10000
+            val code = conn.responseCode
+            val body = if (code in 200..299)
+                conn.inputStream.use { it.readBytes() }.toString(Charsets.UTF_8)
+            else
+                conn.errorStream?.use { it.readBytes() }?.toString(Charsets.UTF_8) ?: ""
+            conn.disconnect()
+            val json = org.json.JSONObject(body)
+            if (json.optBoolean("allowed", false)) null
+            else json.optString("reason", getString(R.string.download_tag_package_failed))
+        } catch (e: Exception) {
+            logDebug("checkTagDownloadPermission error: ${e.message}")
+            getString(R.string.download_tag_package_failed)
+        }
+    }
+
+    // ── 在线下载并导入标签包 ──────────────────────────────────────────────────
+
+    /**
+     * 下载指定品牌的标签包并导入（suspend）。
+     * onProgress(0..100) 在 IO 线程回调，调用方用 withContext(Main) 更新 UI。
+     */
+    private suspend fun downloadAndImportTagPackage(
+        brand: String,
+        onProgress: (Int) -> Unit,
+        onImportStatus: (String) -> Unit
+    ): String {
+        val installId = com.m0h31h31.bamburfidreader.utils.AnalyticsReporter.getInstallId(this)
+        val endpoint = com.m0h31h31.bamburfidreader.utils.ConfigManager.getTagDownloadEndpoint(this)
+        val payload = org.json.JSONObject().apply {
+            put("install_id", installId)
+            put("brand", brand)
+        }
+        val tmp = java.io.File(cacheDir, "dl_${brand}_${System.currentTimeMillis()}.zip")
+        val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        return try {
+            val result = com.m0h31h31.bamburfidreader.utils.NetworkUtils.postJsonDownloadToFile(
+                endpoint, payload, tmp, onProgress = onProgress
+            ) ?: return getString(R.string.download_tag_package_failed)
+
+            val (code, errBody) = result
+            if (code !in 200..299) {
+                val detail = try {
+                    org.json.JSONObject(errBody!!.toString(Charsets.UTF_8)).optString("detail", "")
+                } catch (_: Exception) { "" }
+                return if (detail.isNotBlank()) detail
+                       else getString(R.string.download_tag_package_failed)
+            }
+            importTagPackageFromZipFile(tmp, snapmaker = brand == "snapmaker") { cur, total ->
+                mainHandler.post { onImportStatus("正在导入 ($cur/$total)…") }
+            }
+        } finally {
+            tmp.delete()
+        }
+    }
+
+    /**
+     * 直接从 zip 文件导入标签包（不经过 ContentResolver/FileProvider），
+     * 复用现有解析逻辑，适用于下载后的临时文件。
+     */
+    private fun importTagPackageFromZipFile(
+        zipFile: java.io.File,
+        snapmaker: Boolean,
+        onProgress: ((cur: Int, total: Int) -> Unit)? = null
+    ): String {
+        val dbHelper = filamentDbHelper ?: return "数据库不可用"
+        val db = dbHelper.writableDatabase
+        return try {
+            // 用 zip4j 直接打开文件（与 extractZipEntries 相同逻辑，跳过 URI 拷贝）
+            val zip4j = net.lingala.zip4j.ZipFile(zipFile)
+            if (zip4j.isEncrypted) {
+                zip4j.setPassword(computeTagZipPassword().toCharArray())
+            }
+            val entries = mutableListOf<Pair<String, ByteArray>>()
+            for (header in zip4j.fileHeaders) {
+                if (!header.isDirectory) {
+                    val bytes = zip4j.getInputStream(header).use { it.readBytes() }
+                    entries.add(Pair(header.fileName, bytes))
+                }
+            }
+            if (snapmaker) processSnapmakerZipEntries(entries, db, dbHelper, onProgress)
+            else processBambuZipEntries(entries, db, dbHelper, onProgress)
+        } catch (e: Exception) {
+            logDebug("importTagPackageFromZipFile error: ${e.message}")
+            "导入失败: ${e.message.orEmpty()}"
+        }
+    }
+
     // ── 快造标签包导入 ──────────────────────────────────────────────────────────
 
     private fun openSnapmakerTagPackagePicker() {
@@ -2155,6 +2265,117 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             logDebug("导入快造标签包失败: ${e.message}")
             "导入快造标签包失败: ${e.message.orEmpty()}"
+        }
+    }
+
+    // ── zip entries 通用处理（供 URI 导入和文件直接导入共用）───────────────────
+
+    private fun processBambuZipEntries(
+        entries: List<Pair<String, ByteArray>>,
+        db: android.database.sqlite.SQLiteDatabase,
+        dbHelper: FilamentDbHelper,
+        onProgress: ((cur: Int, total: Int) -> Unit)? = null
+    ): String {
+        val helper = dbHelper
+        var extractedCount = 0; var skippedCount = 0
+        var invalidCount = 0;   var overwrittenCount = 0
+        val txtEntries = entries.filter { it.first.lowercase(Locale.US).endsWith(".txt") }
+        val total = txtEntries.size
+        var processed = 0
+        val existingRows = helper.getAllShareTagRows(db)
+        val existingFileUidSet = existingRows.map { it.fileUid.uppercase(Locale.US) }.toMutableSet()
+        val existingTrayUidSet = existingRows
+            .mapNotNull { it.trayUid?.uppercase(Locale.US)?.ifBlank { null } }.toMutableSet()
+        for ((entryName, bytes) in txtEntries) {
+            val incomingUid = File(entryName).nameWithoutExtension.uppercase(Locale.US)
+            val alreadyExists = incomingUid.isNotBlank() && existingFileUidSet.contains(incomingUid)
+            if (alreadyExists && !forceOverwriteImport) { skippedCount++; processed++; onProgress?.invoke(processed, total); continue }
+            val content = String(bytes, Charsets.UTF_8)
+            val rawBlocks = parseHexTagFileStrict(content)
+            if (rawBlocks == null) { invalidCount++; processed++; onProgress?.invoke(processed, total); continue }
+            if (!isValidBambuTag(rawBlocks)) { invalidCount++; processed++; onProgress?.invoke(processed, total); continue }
+            val preview = NfcTagProcessor.parseForPreview(rawBlocks, filamentDbHelper) { }
+            val trayUid = preview.trayUidHex.trim()
+            if (trayUid.isNotBlank() && existingTrayUidSet.contains(trayUid.uppercase())) {
+                skippedCount++; processed++; onProgress?.invoke(processed, total); continue
+            }
+            if (alreadyExists && forceOverwriteImport && incomingUid.isNotBlank()) {
+                helper.deleteShareTagByFileUid(db, incomingUid)
+            }
+            val normalized = content.trim().lines()
+                .map { it.trim() }.filter { it.isNotBlank() }.take(64).joinToString("\n")
+            val productionDate = extractProductionDate(rawBlocks)
+            helper.insertShareTag(
+                db, fileUid = incomingUid, trayUid = trayUid.ifBlank { null },
+                materialType = preview.displayData.type.ifBlank { null },
+                colorUid = preview.displayData.colorCode.ifBlank { null },
+                colorName = preview.displayData.colorName.ifBlank { null },
+                colorType = preview.displayData.colorType.ifBlank { null },
+                colorValues = preview.displayData.colorValues.joinToString(",").ifBlank { null },
+                rawData = normalized, productionDate = productionDate
+            )
+            extractedCount++
+            if (alreadyExists && forceOverwriteImport) overwrittenCount++
+            if (incomingUid.isNotBlank()) existingFileUidSet.add(incomingUid)
+            if (trayUid.isNotBlank()) existingTrayUidSet.add(trayUid.uppercase())
+            processed++
+            onProgress?.invoke(processed, total)
+        }
+        return when {
+            extractedCount == 0 && skippedCount == 0 && invalidCount == 0 ->
+                "导入完成，但压缩包内未发现标签数据"
+            extractedCount == 0 ->
+                "导入完成：格式无效 $invalidCount 个，重复跳过 $skippedCount 个"
+            forceOverwriteImport ->
+                "Bambu 标签包导入完成：新增 $extractedCount 个（覆盖 $overwrittenCount 个），无效 $invalidCount 个，跳过 $skippedCount 个"
+            else ->
+                "Bambu 标签包导入完成：新增 $extractedCount 个，无效 $invalidCount 个，跳过 $skippedCount 个"
+        }
+    }
+
+    private fun processSnapmakerZipEntries(
+        entries: List<Pair<String, ByteArray>>,
+        db: android.database.sqlite.SQLiteDatabase,
+        dbHelper: FilamentDbHelper,
+        onProgress: ((cur: Int, total: Int) -> Unit)? = null
+    ): String {
+        val helper = dbHelper
+        var extractedCount = 0; var skippedCount = 0; var invalidCount = 0
+        val txtEntries = entries.filter { it.first.lowercase(Locale.US).endsWith(".txt") }
+        val total = txtEntries.size
+        var processed = 0
+        val existingUidSet = helper.getAllSnapmakerShareTagUids(db)
+            .map { it.uppercase(Locale.US) }.toMutableSet()
+        for ((entryName, bytes) in txtEntries) {
+            val incomingUid = File(entryName).nameWithoutExtension.uppercase(Locale.US)
+            if (incomingUid.isNotBlank() && existingUidSet.contains(incomingUid)) {
+                skippedCount++; processed++; onProgress?.invoke(processed, total); continue
+            }
+            val content = String(bytes, Charsets.UTF_8)
+            val rawBlocks = parseHexTagFileStrict(content)
+            if (rawBlocks == null) { invalidCount++; processed++; onProgress?.invoke(processed, total); continue }
+            if (!isValidSnapmakerTag(rawBlocks)) { invalidCount++; processed++; onProgress?.invoke(processed, total); continue }
+            val fields = parseSnapmakerShareFields(rawBlocks)
+            val normalized = content.trim().lines()
+                .map { it.trim() }.filter { it.isNotBlank() }.take(64).joinToString("\n")
+            helper.insertSnapmakerShareTag(
+                db, uid = incomingUid, vendor = fields.vendor,
+                manufacturer = fields.manufacturer, mainType = fields.mainType,
+                diameter = fields.diameter, weight = fields.weight,
+                rgb1 = fields.rgb1, mfDate = fields.mfDate, rawData = normalized
+            )
+            extractedCount++
+            existingUidSet.add(incomingUid)
+            processed++
+            onProgress?.invoke(processed, total)
+        }
+        return when {
+            extractedCount == 0 && skippedCount == 0 && invalidCount == 0 ->
+                "导入完成，但压缩包内未发现标签数据"
+            extractedCount == 0 ->
+                "导入完成：格式无效 $invalidCount 个，重复跳过 $skippedCount 个"
+            else ->
+                "Snapmaker 标签包导入完成：新增 $extractedCount 个，无效 $invalidCount 个，跳过 $skippedCount 个"
         }
     }
 
@@ -5878,7 +6099,7 @@ class FilamentDbHelper(context: Context) :
             val now = System.currentTimeMillis()
             for ((uid, count) in uids) {
                 val cv = ContentValues()
-                cv.put("uid", uid.lowercase().trim())
+                cv.put("uid", uid.uppercase().trim())
                 cv.put("report_count", count)
                 cv.put("synced_at", now)
                 db.insertWithOnConflict(ANOMALY_UIDS_TABLE, null, cv, SQLiteDatabase.CONFLICT_REPLACE)

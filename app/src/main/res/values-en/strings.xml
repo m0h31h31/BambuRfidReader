@@ -307,14 +307,14 @@
 
     <string name="anomaly_report_button">Report Anomaly</string>
     <string name="anomaly_dialog_title">Report Anomalous Tag</string>
-    <string name="anomaly_dialog_message">This filament data fails AMS recognition, or if the AMS reports it cannot identify this tag, please submit a report. Reported tags will be marked as anomalous in the shared library. Please report honestly — do not submit false reports.</string>
+    <string name="anomaly_dialog_message">IF his filament data fails AMS recognition, or if the AMS reports it cannot identify this tag, please submit a report. Reported tags will be marked as anomalous in the shared library. Please report honestly — do not submit false reports.</string>
     <string name="anomaly_dialog_confirm">Submit Report</string>
     <string name="anomaly_dialog_cancel">Cancel</string>
     <string name="anomaly_report_success">Report submitted</string>
     <string name="anomaly_report_fail">Report failed, please try again</string>
     <string name="anomaly_copy_warning_title">Warning</string>
     <string name="anomaly_copy_warning_message">This tag may be banned by AMS (%d reports). Copy with caution.</string>
-    <string name="misc_device_id_label">Device ID</string>
+    <string name="misc_device_id_label">DeviceID</string>
     <string name="misc_nickname_label">Nickname</string>
     <string name="misc_nickname_hint">Enter nickname (optional)</string>
     <string name="misc_nickname_save">Save</string>
@@ -343,4 +343,15 @@
     <string name="misc_import_tag_type_title">Select Import Type</string>
     <string name="snapmaker_tag_screen_hint">Select Tag and Write to Card</string>
     <string name="snapmaker_diameter_label">Filament Diameter</string>
+    <string name="download_shared_tag_library">Download Shared Tag Library</string>
+    <string name="download_bambu_tag_package">Download Bambu Tag Package</string>
+    <string name="download_snapmaker_tag_package">Download Snapmaker Tag Package</string>
+    <string name="downloading_tag_package">Downloading…</string>
+    <string name="download_tag_package_failed">Download failed, please check your network and try again</string>
+    <string name="download_not_allowed_title">Download Not Allowed</string>
+    <string name="action_ok">OK</string>
+    <string name="downloading_tag_package_brand">Downloading %1$s tag package…</string>
+    <string name="dl_state_connecting">Connecting to server…</string>
+    <string name="dl_state_importing">Importing tags…</string>
+    <string name="dl_state_checking">Checking permission…</string>
 </resources>

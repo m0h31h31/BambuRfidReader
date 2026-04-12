@@ -308,14 +308,14 @@
 
     <string name="anomaly_report_button">异常上报</string>
     <string name="anomaly_dialog_title">上报异常耗材标签</string>
-    <string name="anomaly_dialog_message">此耗材数据 AMS 识别失败，或如果提示 AMS 无法识别此标签的内容，请上报标签。上报后标签库会将此标签标记为异常，请如实上报，请勿乱点。</string>
+    <string name="anomaly_dialog_message">如果此耗材数据 AMS 识别失败，或如果提示 AMS 无法识别此标签的内容，请上报标签。上报后标签库会将此标签标记为异常，请如实上报，请勿乱点。</string>
     <string name="anomaly_dialog_confirm">立即上报</string>
     <string name="anomaly_dialog_cancel">取消上报</string>
     <string name="anomaly_report_success">上报成功</string>
     <string name="anomaly_report_fail">上报失败，请稍后重试</string>
     <string name="anomaly_copy_warning_title">注意</string>
     <string name="anomaly_copy_warning_message">此标签可能被 AMS 封禁，已有 %d 人上报异常，请谨慎复制</string>
-    <string name="misc_device_id_label">设备 ID</string>
+    <string name="misc_device_id_label">设备ID</string>
     <string name="misc_nickname_label">昵称</string>
     <string name="misc_nickname_hint">输入昵称（可选）</string>
     <string name="misc_nickname_save">保存</string>
@@ -343,4 +343,15 @@
     <string name="creality_page_subtitle">本页专为创想三维耗材标签设计，仅支持标签读取与写入，与库存、数据等功能相互独立，互不影响。</string>
     <string name="creality_read_success">读取成功</string>
     <string name="creality_read_failed">未识别到创想标签</string>
+    <string name="download_shared_tag_library">下载共享标签库</string>
+    <string name="download_bambu_tag_package">下载 Bambu 标签包</string>
+    <string name="download_snapmaker_tag_package">下载 Snapmaker 标签包</string>
+    <string name="downloading_tag_package">下载中…</string>
+    <string name="download_tag_package_failed">下载失败，请检查网络或稍后重试</string>
+    <string name="download_not_allowed_title">无法下载</string>
+    <string name="action_ok">确定</string>
+    <string name="downloading_tag_package_brand">正在下载 %1$s 标签包…</string>
+    <string name="dl_state_connecting">正在连接服务器…</string>
+    <string name="dl_state_importing">正在导入标签…</string>
+    <string name="dl_state_checking">检查权限中…</string>
 </resources>

@@ -410,8 +410,7 @@ private fun UidSelectionDialog(
                     ) {
                         sortedItems.forEach { item ->
                             val selected = item.relativePath == selectedRelativePath
-                            val isItemAnomalous = item.sourceUid.lowercase() in anomalyUids ||
-                                item.trayUid.lowercase() in anomalyUids
+                            val isItemAnomalous = item.sourceUid.uppercase() in anomalyUids
                             val chipBg = when {
                                 selected -> MaterialTheme.colorScheme.primary
                                 isItemAnomalous -> Color(0xFFD32F2F).copy(alpha = 0.15f)
@@ -463,8 +462,7 @@ private fun UidSelectionDialog(
                 }
                 val anomalyPendingTarget = pendingAnomalyItem
                 if (anomalyPendingTarget != null) {
-                    val anomalyCount = anomalyUids[anomalyPendingTarget.trayUid.lowercase()]
-                        ?: anomalyUids[anomalyPendingTarget.sourceUid.lowercase()]
+                    val anomalyCount = anomalyUids[anomalyPendingTarget.sourceUid.uppercase()]
                         ?: 1
                     AlertDialog(
                         onDismissRequest = { pendingAnomalyItem = null },
@@ -986,8 +984,7 @@ fun TagScreen(
                                     unknownColorText = unknownColorText,
                                     unknownColorIdText = unknownColorIdText,
                                     uiStyle = uiStyle,
-                                    isAnomalous = item.sourceUid.lowercase() in anomalyUids ||
-                                        item.trayUid.lowercase() in anomalyUids
+                                    isAnomalous = item.sourceUid.uppercase() in anomalyUids
                                 )
                             }
                         }
@@ -1092,8 +1089,7 @@ fun TagScreen(
             }
             val anomalyWriteTarget = pendingAnomalyWriteItem
             if (anomalyWriteTarget != null) {
-                val anomalyWriteCount = anomalyUids[anomalyWriteTarget.trayUid.lowercase()]
-                    ?: anomalyUids[anomalyWriteTarget.sourceUid.lowercase()]
+                val anomalyWriteCount = anomalyUids[anomalyWriteTarget.sourceUid.uppercase()]
                     ?: 1
                 AlertDialog(
                     onDismissRequest = { pendingAnomalyWriteItem = null },
@@ -1127,8 +1123,7 @@ fun TagScreen(
                         } else {
                             val item = selectedItem
                             if (item != null) {
-                                if (item.sourceUid.lowercase() in anomalyUids ||
-                                    item.trayUid.lowercase() in anomalyUids) {
+                                if (item.sourceUid.uppercase() in anomalyUids) {
                                     pendingAnomalyWriteItem = item
                                 } else {
                                     onStartWrite(item)

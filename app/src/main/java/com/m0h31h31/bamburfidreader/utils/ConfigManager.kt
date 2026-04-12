@@ -19,6 +19,8 @@ object ConfigManager {
         "bambulab://bbl/design/model/detail?design_id=2020787&instance_id=2253290&appSharePlatform=copy"
     private const val DEFAULT_USER_COUNT_ENDPOINT = "https://brr.jacki.cn/events"
     private const val DEFAULT_TAG_SHARE_ENDPOINT = "https://brr.jacki.cn/api/tags"
+    private const val DEFAULT_TAG_DOWNLOAD_ENDPOINT = "https://brr.jacki.cn/api/public/tags/download"
+    private const val DEFAULT_TAG_CAN_DOWNLOAD_ENDPOINT = "https://brr.jacki.cn/api/public/tags/can-download"
     private const val DEFAULT_ANOMALY_REPORT_ENDPOINT = "https://brr.jacki.cn/api/anomaly"
     private const val DEFAULT_ANOMALY_UIDS_ENDPOINT = "https://brr.jacki.cn/api/anomaly/uids"
     private const val DEFAULT_NICKNAME_ENDPOINT = "https://brr.jacki.cn/api/nickname"
@@ -277,6 +279,32 @@ object ConfigManager {
             com.m0h31h31.bamburfidreader.logDebug("Error parsing AppConfig tagShareEndpoint: ${e.message}")
             null
         }) ?: defaultValue
+    }
+
+    fun getTagCanDownloadEndpoint(context: Context): String {
+        val configContent = getLocalConfig(context, APP_CONFIG_FILE)
+        return try {
+            configContent?.let {
+                val json = JSONObject(it)
+                parseLinkConfig(json, "tagCanDownloadEndpoint", null)
+                    ?.takeIf { cfg -> cfg.type.equals("url", ignoreCase = true) && cfg.value.isNotBlank() }
+                    ?.value
+            }
+        } catch (e: Exception) { null } ?: DEFAULT_TAG_CAN_DOWNLOAD_ENDPOINT
+    }
+
+    fun getTagDownloadEndpoint(context: Context): String {
+        val configContent = getLocalConfig(context, APP_CONFIG_FILE)
+        return try {
+            configContent?.let {
+                val json = JSONObject(it)
+                parseLinkConfig(json, "tagDownloadEndpoint", null)
+                    ?.takeIf { cfg -> cfg.type.equals("url", ignoreCase = true) && cfg.value.isNotBlank() }
+                    ?.value
+            }
+        } catch (e: Exception) {
+            null
+        } ?: DEFAULT_TAG_DOWNLOAD_ENDPOINT
     }
 
     fun getAppConfigUserCountEndpoint(context: Context): AppLinkConfig {

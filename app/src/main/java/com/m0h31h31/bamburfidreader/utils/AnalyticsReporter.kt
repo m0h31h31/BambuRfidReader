@@ -2,9 +2,9 @@ package com.m0h31h31.bamburfidreader.utils
 
 import android.content.Context
 import android.os.Build
+import android.provider.Settings
 import com.m0h31h31.bamburfidreader.BuildConfig
 import org.json.JSONObject
-import java.util.UUID
 
 data class UpdateInfo(
     val versionCode: Int,
@@ -16,7 +16,6 @@ data class UpdateInfo(
 
 object AnalyticsReporter {
     private const val PREFS_NAME = "analytics_prefs"
-    private const val KEY_INSTALL_ID = "install_id"
     private const val KEY_INSTALL_REPORTED = "install_reported"
 
     internal fun apiKeyHeaders(): Map<String, String> = buildMap {
@@ -26,23 +25,19 @@ object AnalyticsReporter {
     }
 
     /**
-     * 获取本设备的稳定 UUID。首次调用时生成并持久化，后续调用返回同一值。
-     * 卸载重装后会重新生成。
+     * 获取本设备的稳定设备 ID（ANDROID_ID）。
+     * 绑定 设备 + 用户 + 应用签名，卸载重装、系统升级均不变，仅出厂重置后改变。
+     * Min SDK 28，ANDROID_ID 始终可用。
      */
-    fun getInstallId(context: Context): String {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return prefs.getString(KEY_INSTALL_ID, null) ?: UUID.randomUUID().toString().also {
-            prefs.edit().putString(KEY_INSTALL_ID, it).apply()
-        }
-    }
+    fun getInstallId(context: Context): String =
+        Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
 
     /**
      * 上报异常标签到服务器。
-     * @param trayUid 料盘 UID（必须）
-     * @param cardUid 卡片硬件 NFC UID（可选）
+     * @param cardUid 卡片硬件 NFC UID（8字符，必须）
      * @return true 表示上报成功（含重复上报），false 表示请求失败。
      */
-    suspend fun reportAnomaly(context: Context, trayUid: String, cardUid: String = ""): Boolean {
+    suspend fun reportAnomaly(context: Context, cardUid: String): Boolean {
         val cfg = ConfigManager.getAnomalyReportEndpoint(context)
         val endpoint = cfg.value
         com.m0h31h31.bamburfidreader.logDebug("AnalyticsReporter.reportAnomaly endpoint=$endpoint (from config: ${cfg.isUsable})")
@@ -52,13 +47,12 @@ object AnalyticsReporter {
         }
         val installId = getInstallId(context)
         val payload = org.json.JSONObject().apply {
-            put("uid", trayUid.lowercase().trim())
-            put("card_uid", cardUid.lowercase().trim())
+            put("uid", cardUid.uppercase().trim())
             put("device_id", installId)
             put("timestamp_ms", System.currentTimeMillis())
         }
         val ok = NetworkUtils.postJson(endpoint, payload, apiKeyHeaders())
-        com.m0h31h31.bamburfidreader.logDebug("AnalyticsReporter.reportAnomaly result=$ok uid=$trayUid")
+        com.m0h31h31.bamburfidreader.logDebug("AnalyticsReporter.reportAnomaly result=$ok uid=$cardUid")
         return ok
     }
 
@@ -89,7 +83,7 @@ object AnalyticsReporter {
         for (i in 0 until arr.length()) {
             val item = arr.optJSONObject(i)
             if (item != null) {
-                val uid = item.optString("uid").lowercase().trim()
+                val uid = item.optString("uid").uppercase().trim()
                 val count = item.optInt("count", 1).coerceAtLeast(1)
                 if (uid.isNotBlank()) result[uid] = count
             }

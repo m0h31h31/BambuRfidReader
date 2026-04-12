@@ -26,6 +26,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -214,6 +215,8 @@ fun MiscScreen(
     onAutoDetectBrandChange: (Boolean) -> Unit = {},
     autoShareTag: Boolean = true,
     onAutoShareTagChange: (Boolean) -> Unit = {},
+    onCheckDownloadPermission: suspend () -> String? = { null },
+    onDownloadTagPackage: suspend (brand: String, onProgress: (Int) -> Unit, onImportStatus: (String) -> Unit) -> String = { _, _, _ -> "" },
     hideCopiedTags: Boolean = true,
     onHideCopiedTagsChange: (Boolean) -> Unit = {},
     dualTagMode: Boolean = false,
@@ -867,6 +870,144 @@ fun MiscScreen(
                                     }
                                 }
                             )
+                        }
+
+                        // ── 下载共享标签库（仅自动共享开启时显示）────────────
+                        // 状态在外层保持，避免 AnimatedVisibility 里 remember 被重置
+                        var dlChecking      by remember { mutableStateOf(false) }
+                        var dlDeniedMsg     by remember { mutableStateOf("") }
+                        var dlShowBrandMenu by remember { mutableStateOf(false) }
+                        var dlInProgress    by remember { mutableStateOf(false) }
+                        var dlProgress      by remember { mutableStateOf(0) }
+                        var dlBrand         by remember { mutableStateOf("") }
+                        var dlImportStatus  by remember { mutableStateOf("") }
+                        val dlScope = rememberCoroutineScope()
+
+                        // 权限拒绝提示弹窗
+                        if (dlDeniedMsg.isNotBlank()) {
+                            AlertDialog(
+                                onDismissRequest = { dlDeniedMsg = "" },
+                                title = { Text(stringResource(R.string.download_not_allowed_title)) },
+                                text  = { Text(dlDeniedMsg) },
+                                confirmButton = {
+                                    TextButton(onClick = { dlDeniedMsg = "" }) {
+                                        Text(stringResource(R.string.action_ok))
+                                    }
+                                }
+                            )
+                        }
+
+                        // 下载进度弹窗
+                        if (dlInProgress) {
+                            AlertDialog(
+                                onDismissRequest = { /* 下载中不允许关闭 */ },
+                                title = {
+                                    Text(stringResource(
+                                        R.string.downloading_tag_package_brand,
+                                        if (dlBrand == "bambu") "Bambu" else "Snapmaker"
+                                    ))
+                                },
+                                text = {
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        if (dlProgress in 1..99) {
+                                            androidx.compose.material3.LinearProgressIndicator(
+                                                progress = { dlProgress / 100f },
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                            Text(
+                                                "$dlProgress%",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        } else {
+                                            androidx.compose.material3.LinearProgressIndicator(
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                            Text(
+                                                when {
+                                                    dlProgress == 0 -> stringResource(R.string.dl_state_connecting)
+                                                    dlImportStatus.isNotBlank() -> dlImportStatus
+                                                    else -> stringResource(R.string.dl_state_importing)
+                                                },
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                },
+                                confirmButton = {}
+                            )
+                        }
+
+                        AnimatedVisibility(
+                            visible = autoShareTag,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
+                        ) {
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                NeuButton(
+                                    text = when {
+                                        dlChecking  -> stringResource(R.string.dl_state_checking)
+                                        else        -> stringResource(R.string.download_shared_tag_library)
+                                    },
+                                    onClick = {
+                                        if (!dlChecking && !dlInProgress) {
+                                            dlChecking = true
+                                            dlScope.launch {
+                                                val denied = kotlinx.coroutines.withContext(
+                                                    kotlinx.coroutines.Dispatchers.IO
+                                                ) { onCheckDownloadPermission() }
+                                                dlChecking = false
+                                                if (denied != null) {
+                                                    dlDeniedMsg = denied
+                                                } else {
+                                                    dlShowBrandMenu = true
+                                                }
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                DropdownMenu(
+                                    expanded = dlShowBrandMenu,
+                                    onDismissRequest = { dlShowBrandMenu = false }
+                                ) {
+                                    androidx.compose.material3.DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.download_bambu_tag_package)) },
+                                        onClick = {
+                                            dlShowBrandMenu = false
+                                            dlBrand = "bambu"; dlProgress = 0; dlImportStatus = ""; dlInProgress = true
+                                            dlScope.launch {
+                                                val msg = onDownloadTagPackage("bambu",
+                                                    { p -> dlProgress = p },
+                                                    { s -> dlImportStatus = s }
+                                                )
+                                                dlInProgress = false
+                                                dlProgress = 0
+                                                dlImportStatus = ""
+                                                if (msg.isNotBlank()) message = msg
+                                            }
+                                        }
+                                    )
+                                    androidx.compose.material3.DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.download_snapmaker_tag_package)) },
+                                        onClick = {
+                                            dlShowBrandMenu = false
+                                            dlBrand = "snapmaker"; dlProgress = 0; dlImportStatus = ""; dlInProgress = true
+                                            dlScope.launch {
+                                                val msg = onDownloadTagPackage("snapmaker",
+                                                    { p -> dlProgress = p },
+                                                    { s -> dlImportStatus = s }
+                                                )
+                                                dlInProgress = false
+                                                dlProgress = 0
+                                                dlImportStatus = ""
+                                                if (msg.isNotBlank()) message = msg
+                                            }
+                                        }
+                                    )
+                                }
+                            }
                         }
 
                         Row(

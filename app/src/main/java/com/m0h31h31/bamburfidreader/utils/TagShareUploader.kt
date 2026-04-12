@@ -8,6 +8,9 @@ import org.json.JSONObject
 
 object TagShareUploader {
 
+    private const val PREFS_NAME = "tag_share_prefs"
+    private const val KEY_UPLOADED_UIDS = "uploaded_uids"
+
     // ── 完整性判断 ───────────────────────────────────────────────────────────
 
     /**
@@ -18,14 +21,34 @@ object TagShareUploader {
                 rawData.rawBlocks.any { it != null && it.isNotEmpty() }
     }
 
+    // ── 本地已上传 UID 缓存 ───────────────────────────────────────────────────
+
+    private fun getUploadedUids(context: Context): MutableSet<String> {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getStringSet(KEY_UPLOADED_UIDS, emptySet())!!.toMutableSet()
+    }
+
+    private fun markUploaded(context: Context, uid: String) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val set = getUploadedUids(context)
+        set.add(uid.uppercase().trim())
+        prefs.edit().putStringSet(KEY_UPLOADED_UIDS, set).apply()
+    }
+
     // ── 上传 ─────────────────────────────────────────────────────────────────
 
     /**
      * 上传标签原始数据（拓竹 / 快造通用）：发送 brand、uid、blocks、keys、device_id。
+     * 若本地已记录该 UID 上传成功（或服务端已有），直接跳过，避免冗余请求。
      */
     suspend fun uploadRawTag(context: Context, brand: String, rawData: RawTagReadData): Boolean {
+        val uid = rawData.uidHex.uppercase().trim()
+        if (uid in getUploadedUids(context)) {
+            logDebug("TagShareUploader: uid=$uid 已上传过，跳过")
+            return true
+        }
         val endpoint = ConfigManager.getTagShareEndpoint(context)
-        logDebug("TagShareUploader.uploadRawTag endpoint=${endpoint.value} isUsable=${endpoint.isUsable} brand=$brand uid=${rawData.uidHex}")
+        logDebug("TagShareUploader.uploadRawTag endpoint=${endpoint.value} isUsable=${endpoint.isUsable} brand=$brand uid=$uid")
         if (!endpoint.isUsable) {
             logDebug("TagShareUploader: tagShareEndpoint 未配置，跳过上传")
             return false
@@ -33,8 +56,13 @@ object TagShareUploader {
         val deviceId = AnalyticsReporter.getInstallId(context)
         return try {
             val ok = NetworkUtils.postJson(endpoint.value, buildRawPayload(brand, rawData, deviceId), AnalyticsReporter.apiKeyHeaders())
-            logDebug(if (ok) "TagShareUploader: 上传成功 brand=$brand uid=${rawData.uidHex}"
-                     else    "TagShareUploader: 上传失败 brand=$brand uid=${rawData.uidHex}")
+            if (ok) {
+                // 服务端返回 2xx（无论是新插入还是已存在），本地标记为已上传
+                markUploaded(context, uid)
+                logDebug("TagShareUploader: 上传成功 brand=$brand uid=$uid")
+            } else {
+                logDebug("TagShareUploader: 上传失败 brand=$brand uid=$uid")
+            }
             ok
         } catch (e: Exception) {
             logDebug("TagShareUploader: 上传异常: ${e.message}")
