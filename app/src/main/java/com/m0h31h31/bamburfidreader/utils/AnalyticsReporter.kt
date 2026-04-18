@@ -92,6 +92,39 @@ object AnalyticsReporter {
         return result
     }
 
+    /**
+     * 上报 UID 复制事件到服务器。
+     * @param uid 被复制的拓竹标签 UID（sourceUid）
+     * @return 服务端返回的复制人数，失败时返回 null。
+     */
+    suspend fun reportUidCopy(context: Context, uid: String): Int? {
+        val endpoint = ConfigManager.getUidCopyEndpoint(context).value
+        if (endpoint.isBlank()) return null
+        val installId = getInstallId(context)
+        val payload = JSONObject().apply {
+            put("uid", uid.uppercase().trim())
+            put("device_id", installId)
+            put("timestamp_ms", System.currentTimeMillis())
+        }
+        val json = NetworkUtils.postJsonGetResponse(endpoint, payload, apiKeyHeaders())
+        com.m0h31h31.bamburfidreader.logDebug("AnalyticsReporter.reportUidCopy uid=$uid result=$json")
+        return json?.optInt("copy_count", -1)?.takeIf { it >= 0 }
+    }
+
+    /**
+     * 查询指定 UID 已被复制的人数。
+     * @param uid 要查询的标签 UID
+     * @return 复制人数，失败时返回 null。
+     */
+    suspend fun fetchUidCopyCount(context: Context, uid: String): Int? {
+        val baseEndpoint = ConfigManager.getUidCopyEndpoint(context).value
+        if (baseEndpoint.isBlank()) return null
+        val endpoint = "${baseEndpoint.trimEnd('/')}/${uid.uppercase().trim()}/count"
+        val json = NetworkUtils.getJson(endpoint, apiKeyHeaders())
+        com.m0h31h31.bamburfidreader.logDebug("AnalyticsReporter.fetchUidCopyCount uid=$uid result=$json")
+        return json?.optInt("copy_count", -1)?.takeIf { it >= 0 }
+    }
+
     suspend fun saveNickname(context: Context, nickname: String): Boolean {
         val cfg = ConfigManager.getNicknameEndpoint(context)
         val endpoint = cfg.value

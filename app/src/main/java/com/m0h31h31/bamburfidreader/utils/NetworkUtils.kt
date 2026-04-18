@@ -200,6 +200,49 @@ object NetworkUtils {
         }
     }
 
+    /**
+     * POST JSON，返回服务端响应的 JSONObject。网络或解析失败返回 null。
+     */
+    suspend fun postJsonGetResponse(
+        urlString: String,
+        payload: JSONObject,
+        headers: Map<String, String> = emptyMap()
+    ): JSONObject? {
+        return withContext(Dispatchers.IO) {
+            com.m0h31h31.bamburfidreader.logDebug("NetworkUtils POST(json) $urlString")
+            val url = URL(urlString)
+            val connection = url.openConnection() as HttpURLConnection
+            connection.apply {
+                connectTimeout = TIMEOUT_MS
+                readTimeout = TIMEOUT_MS
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+                setRequestProperty("Accept", "application/json")
+                headers.forEach { (key, value) ->
+                    if (value.isNotBlank()) setRequestProperty(key, value)
+                }
+            }
+            try {
+                connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+                val code = connection.responseCode
+                if (code !in 200..299) {
+                    val errBody = connection.errorStream?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
+                    com.m0h31h31.bamburfidreader.logDebug("NetworkUtils POST(json) $urlString → $code body=$errBody")
+                    return@withContext null
+                }
+                val body = connection.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
+                com.m0h31h31.bamburfidreader.logDebug("NetworkUtils POST(json) $urlString → $code OK")
+                JSONObject(body)
+            } catch (e: Exception) {
+                com.m0h31h31.bamburfidreader.logDebug("NetworkUtils POST(json) $urlString exception: ${e.message}")
+                null
+            } finally {
+                connection.disconnect()
+            }
+        }
+    }
+
     suspend fun postJson(
         urlString: String,
         payload: JSONObject,

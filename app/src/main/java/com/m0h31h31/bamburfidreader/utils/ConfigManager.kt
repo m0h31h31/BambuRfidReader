@@ -25,6 +25,8 @@ object ConfigManager {
     private const val DEFAULT_ANOMALY_UIDS_ENDPOINT = "https://brr.jacki.cn/api/anomaly/uids"
     private const val DEFAULT_NICKNAME_ENDPOINT = "https://brr.jacki.cn/api/nickname"
     private const val DEFAULT_UPDATE_ENDPOINT = "https://brr.jacki.cn/api/update/latest"
+    private const val DEFAULT_UID_COPY_ENDPOINT = "https://brr.jacki.cn/api/uid-copy"
+    private const val DEFAULT_UID_COPY_COUNT_ENDPOINT = "https://brr.jacki.cn/api/uid-copy"
 
     // 文件路径
     private const val FILAMENTS_COLOR_CODES_FILE = "filaments_color_codes.json"
@@ -387,6 +389,19 @@ object ConfigManager {
         } catch (e: Exception) {
             com.m0h31h31.bamburfidreader.logDebug("Error checking creality_material_list.json: ${e.message}")
         }
+    }
+
+    fun getUidCopyEndpoint(context: Context): AppLinkConfig {
+        val defaultValue = AppLinkConfig(type = "url", value = DEFAULT_UID_COPY_ENDPOINT)
+        val configContent = getLocalConfig(context, APP_CONFIG_FILE) ?: return defaultValue
+        return (try {
+            val json = JSONObject(configContent)
+            parseLinkConfig(json, "uidCopyEndpoint", null)?.takeIf {
+                it.type.equals("url", ignoreCase = true) && it.value.isNotBlank()
+            }
+        } catch (e: Exception) {
+            null
+        }) ?: defaultValue
     }
 
     fun getUpdateEndpoint(context: Context): AppLinkConfig {

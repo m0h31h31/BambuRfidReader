@@ -782,6 +782,12 @@ fun TagScreen(
     onDismissCModifyRecovery: () -> Unit = {},
     onRefresh: () -> Unit = {},
     anomalyUids: Map<String, Int> = emptyMap(),
+    /** 当用户选中某个标签时回调（传入 sourceUid），用于触发后端复制人数查询 */
+    onTagSelected: (String) -> Unit = {},
+    /** 当前选中标签在后端的复制人数，null 表示尚未查询或查询失败 */
+    selectedTagCopyCount: Int? = null,
+    /** 复制上限（0 = 不限制）。超过后禁止写入按钮，当前不启用 */
+    copyLimit: Int = 0,
     modifier: Modifier = Modifier
 ) {
     val uiStyle = LocalAppUiStyle.current
@@ -834,6 +840,12 @@ fun TagScreen(
             val matched = items.firstOrNull { it.fileName == target }
             if (matched != null) selectedFileName = matched.relativePath
         }
+    }
+
+    // 选中标签变化时通知外部查询复制人数
+    LaunchedEffect(selectedFileName) {
+        val uid = items.firstOrNull { it.relativePath == selectedFileName }?.sourceUid
+        if (!uid.isNullOrBlank()) onTagSelected(uid)
     }
 
     val copyThreshold = if (dualTagMode) 2 else 1
@@ -1040,17 +1052,34 @@ fun TagScreen(
                             Text(stringResource(R.string.tag_write_notice_2), fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Bold)
                             Text(stringResource(R.string.tag_write_notice_3), fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Bold)
                             Text(stringResource(R.string.tag_write_notice_4), color = MaterialTheme.colorScheme.error, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.tag_write_notice_5), color = MaterialTheme.colorScheme.error, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
             }
 
             if (selectedItem != null) {
-                Text(
-                    text = stringResource(R.string.tag_current_selection, selectedItem.sourceUid),
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                val copyCount = selectedTagCopyCount
+                val limitExceeded = copyLimit > 0 && copyCount != null && copyCount >= copyLimit
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.tag_current_selection, selectedItem.sourceUid),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (copyCount != null) {
+                        Text(
+                            text = stringResource(R.string.tag_uid_copy_count, copyCount),
+                            fontSize = 12.sp,
+                            color = if (limitExceeded) MaterialTheme.colorScheme.error
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = if (limitExceeded) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
+                }
             }
 
             val bmp = cameraBitmap
@@ -1109,6 +1138,10 @@ fun TagScreen(
                 )
             }
 
+            val limitExceededForWrite = run {
+                val cnt = selectedTagCopyCount
+                copyLimit > 0 && cnt != null && cnt >= copyLimit
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1133,7 +1166,7 @@ fun TagScreen(
                             }
                         }
                     },
-                    enabled = writeInProgress || (!cModifyInProgress && selectedItem != null),
+                    enabled = writeInProgress || (!cModifyInProgress && selectedItem != null && !limitExceededForWrite),
                     modifier = Modifier.weight(1f)
                 )
                 NeuButton(

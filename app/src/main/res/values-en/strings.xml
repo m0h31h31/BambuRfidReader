@@ -99,7 +99,9 @@
     <string name="tag_write_notice_2">2. If writing or verification fails, remove the tag and tap again — the app will retry automatically.</string>
     <string name="tag_write_notice_3">3. Do not write to an existing tag. Duplicate tags may be recognized as the same spool.</string>
     <string name="tag_write_notice_4">4. Writing may fail. The author is not responsible for any consequences.</string>
+    <string name="tag_write_notice_5">5. Avoid cloning UIDs with many users — sharing the same UID increases the risk of being banned!</string>
     <string name="tag_current_selection">Current selection: %1$s</string>
+    <string name="tag_uid_copy_count">Copied by %d user(s)</string>
     <string name="tag_delete_confirm_title">Confirm Delete</string>
     <string name="tag_delete_confirm_message">Delete tag %1$s?</string>
     <string name="tag_start_write">Blank Card Write</string>

@@ -104,7 +104,9 @@
     <string name="tag_write_notice_2">2. 写入或校验失败时，移开标签重新贴上，程序将自动重试。</string>
     <string name="tag_write_notice_3">3. 不要写入已有的标签，相同标签会被识别为一卷料。</string>
     <string name="tag_write_notice_4">4. 写入可能失败！作者不对任何后果负责！</string>
+    <string name="tag_write_notice_5">5. 避免复制使用人数较多的UID，多人共用同一UID容易导致封卡！</string>
     <string name="tag_current_selection">当前选择：%1$s</string>
+    <string name="tag_uid_copy_count">已被 %d 人复制</string>
     <string name="tag_delete_confirm_title">确认删除</string>
     <string name="tag_delete_confirm_message">确定删除标签 %1$s 吗？</string>
     <string name="tag_start_write">空卡写入</string>

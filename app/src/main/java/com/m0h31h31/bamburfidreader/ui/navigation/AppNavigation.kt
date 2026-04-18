@@ -186,6 +186,8 @@ fun AppNavigation(
     readerBrandStatus: String = "",
     anomalyUids: Map<String, Int> = emptyMap(),
     onReportAnomaly: (cardUid: String) -> Unit = { _ -> },
+    onTagSelected: (String) -> Unit = {},
+    selectedTagCopyCount: Int? = null,
     pendingUpdateInfo: com.m0h31h31.bamburfidreader.utils.UpdateInfo? = null,
     isDownloadingUpdate: Boolean = false,
     onStartUpdate: (com.m0h31h31.bamburfidreader.utils.UpdateInfo) -> Unit = {},
@@ -471,7 +473,9 @@ fun AppNavigation(
                     cModifyRecoveryInfo = cModifyRecoveryInfo,
                     onDismissCModifyRecovery = onDismissCModifyRecovery,
                     onRefresh = onTagScreenEnter,
-                    anomalyUids = anomalyUids
+                    anomalyUids = anomalyUids,
+                    onTagSelected = onTagSelected,
+                    selectedTagCopyCount = selectedTagCopyCount,
                 )
             }
             composable("snapmaker") {

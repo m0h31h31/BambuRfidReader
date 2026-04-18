@@ -758,6 +758,7 @@ class MainActivity : ComponentActivity() {
     private var shareRefreshStatusClearJob: Job? = null
     private var miscStatusMessage by mutableStateOf("")
     private var anomalyUids by mutableStateOf<Map<String, Int>>(emptyMap())
+    private var selectedTagCopyCount by mutableStateOf<Int?>(null)
     private var pendingUpdateInfo by mutableStateOf<UpdateInfo?>(null)
     private var isDownloadingUpdate by mutableStateOf(false)
     private var updateDownloadId = -1L
@@ -920,6 +921,14 @@ class MainActivity : ComponentActivity() {
                             }
                             pendingWriteItem = null
                             writeStatusMessage = "写入并校验成功"
+                            // 上报 UID 复制事件到后端，并刷新显示的复制人数
+                            if (targetItem != null) {
+                                val copiedUid = targetItem.sourceUid
+                                lifecycleScope.launch(Dispatchers.IO) {
+                                    val count = com.m0h31h31.bamburfidreader.utils.AnalyticsReporter.reportUidCopy(applicationContext, copiedUid)
+                                    withContext(Dispatchers.Main) { if (count != null) selectedTagCopyCount = count }
+                                }
+                            }
                         } else {
                             // 校验失败但写入成功：递增次数，保留 pendingVerifyItem 供手动重试
                             playFeedbackTone(FeedbackTone.FAILURE)
@@ -934,6 +943,14 @@ class MainActivity : ComponentActivity() {
                             pendingWriteItem = null
                             pendingVerifyItem = targetItem
                             writeStatusMessage = "写入成功，自动校验失败：$verifyResult，请再次贴卡校验"
+                            // 写入成功（即使校验失败）也上报复制事件
+                            if (targetItem != null) {
+                                val copiedUid = targetItem.sourceUid
+                                lifecycleScope.launch(Dispatchers.IO) {
+                                    val count = com.m0h31h31.bamburfidreader.utils.AnalyticsReporter.reportUidCopy(applicationContext, copiedUid)
+                                    withContext(Dispatchers.Main) { if (count != null) selectedTagCopyCount = count }
+                                }
+                            }
                         }
                     }
                 } else {
@@ -1502,6 +1519,14 @@ class MainActivity : ComponentActivity() {
                         refreshShareTagItemsAsync()
                         syncAnomalyUidsAsync()
                     },
+                    onTagSelected = { uid ->
+                        selectedTagCopyCount = null
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            val count = com.m0h31h31.bamburfidreader.utils.AnalyticsReporter.fetchUidCopyCount(applicationContext, uid)
+                            withContext(Dispatchers.Main) { selectedTagCopyCount = count }
+                        }
+                    },
+                    selectedTagCopyCount = selectedTagCopyCount,
                     onStartWriteTag = { item ->
                         enqueueWriteTask(item)
                     },
@@ -1864,6 +1889,15 @@ class MainActivity : ComponentActivity() {
         val backupFile = File(externalDir, "filaments_backup.db")
         return try {
             dbFile.copyTo(backupFile, overwrite = true)
+            // 删除备份中的标签原始数据，避免 NFC block 数据泄露
+            val backupDb = android.database.sqlite.SQLiteDatabase.openDatabase(
+                backupFile.absolutePath, null,
+                android.database.sqlite.SQLiteDatabase.OPEN_READWRITE
+            )
+            backupDb.use { db ->
+                db.delete(SHARE_TAGS_TABLE, null, null)
+                db.delete(SNAPMAKER_SHARE_TAGS_TABLE, null, null)
+            }
             "数据库备份成功"
         } catch (e: Exception) {
             logDebug("数据库备份失败: ${e.message}")
