@@ -356,4 +356,87 @@
     <string name="dl_state_connecting">正在连接服务器…</string>
     <string name="dl_state_importing">正在导入标签…</string>
     <string name="dl_state_checking">检查权限中…</string>
+
+    <!-- Boost reminder dialog -->
+    <string name="boost_reminder_title">⏰ 别让助力券过期！</string>
+    <string name="boost_reminder_message">如果你有多余的助力券，不妨把它用在有意义的地方——\n\n给作者的 MakerWorld 主页 @m0h31h31 助力！主页上的其他模型同样欢迎助力 🎉\n\n📌 每年可助力 5 个模型，每个模型最多助力 2 次。\n\n你的每一次助力，都是对作者坚持创作最真诚的支持 ❤️</string>
+    <string name="boost_action_go">去助力 🚀</string>
+
+    <!-- Common actions -->
+    <string name="action_close">关闭</string>
+    <string name="action_continue">继续</string>
+    <string name="action_got_it">我知道了</string>
+
+    <!-- Debug dialog -->
+    <string name="debug_info_title">调试信息</string>
+
+    <!-- Status messages -->
+    <string name="misc_status_formatting">正在格式化</string>
+    <string name="misc_status_testing">正在检测...</string>
+    <string name="snapmaker_write_in_progress_status">正在写入快造标签...</string>
+    <string name="copy_write_done_verifying">写入完成，正在自动校验...</string>
+    <string name="copy_write_verify_success">写入并校验成功</string>
+
+    <!-- Config update dialog -->
+    <string name="config_update_title">配置更新</string>
+    <string name="config_update_result_title">更新结果</string>
+    <string name="config_update_success">配置更新成功</string>
+
+    <!-- Error messages -->
+    <string name="error_save_sector_no_dir">保存扇区数据失败：无法创建 self 目录</string>
+
+    <!-- Creality color picker -->
+    <string name="creality_label_hue">色相</string>
+    <string name="creality_hex_input_label">#RRGGBB</string>
+
+    <!-- Snapmaker tag screen -->
+    <string name="snapmaker_search_placeholder">搜索品牌/类型/日期</string>
+    <string name="snapmaker_tag_count_format">共 %1$d 个标签，显示 %2$d 个</string>
+    <string name="snapmaker_write_notice_1">标签需要紧贴手机NFC区域,写入过程中不要移动</string>
+    <string name="snapmaker_write_notice_2">写入可能失败!作者不对任何后果负责!</string>
+    <string name="snapmaker_selected_format">已选择：%1$s  %2$s</string>
+    <string name="snapmaker_btn_start_write">开始写入</string>
+    <string name="snapmaker_select_tag_first">请先选择一个标签</string>
+    <string name="snapmaker_delete_confirm_message">确定删除该标签记录？(%1$s)</string>
+
+    <!-- Tag CUID fail dialog -->
+    <string name="tag_cuid_fail_title">CUID 改写失败 — 请备份秘钥</string>
+    <string name="tag_cuid_original_uid_format">原UID（改写前）：%1$s</string>
+    <string name="tag_cuid_target_uid_format">目标UID（源数据）：%1$s</string>
+    <string name="tag_cuid_uid_ambiguous">卡片现UID可能是以上两者之一</string>
+    <string name="tag_cuid_key_list_label">密钥列表（每行一个）</string>
+    <string name="tag_cuid_key_copy_hint">请复制上方密钥，使用 Mifare Classic Tool 手动尝试认证各扇区并格式化修复卡片。</string>
+    <string name="tag_cuid_copy_keys">一键复制秘钥</string>
+    <string name="tag_continue_write">继续写入</string>
+
+    <!-- Reader screen labels -->
+    <string name="reader_label_card_uid">卡片UID</string>
+    <string name="reader_label_material_id">耗材ID</string>
+    <string name="reader_label_color">颜色</string>
+    <string name="reader_label_weight">重量</string>
+    <string name="reader_label_serial">序列号</string>
+    <string name="reader_label_vendor_id">厂商ID</string>
+    <string name="reader_label_mfdate">生产日期</string>
+    <string name="reader_label_batch">批次</string>
+    <string name="reader_label_print_temp">打印温度</string>
+    <string name="reader_label_diameter">线径</string>
+    <string name="reader_label_brand">品牌</string>
+    <string name="reader_label_type">类型</string>
+    <string name="reader_label_color_count">颜色数</string>
+    <string name="reader_label_bed_temp">热床温度</string>
+    <string name="reader_label_drying">烘料</string>
+    <string name="reader_label_official">官方认证</string>
+    <string name="reader_creality_scan_hint">请将创想三维耗材标签靠近读取</string>
+    <string name="reader_snapmaker_info_title">快造 耗材信息</string>
+    <string name="reader_snapmaker_scan_hint">请将快造耗材标签靠近读取</string>
+    <string name="reader_anomaly_report_btn">异常\n上报</string>
+
+    <!-- Write precheck messages -->
+    <string name="write_precheck_missing_trailer">源数据缺少扇区 %1$d trailer</string>
+    <string name="write_precheck_invalid_trailer">源数据扇区 %1$d trailer 长度异常</string>
+    <string name="write_precheck_auth_failed">扇区 %1$d 无法认证（既非空白卡也非目标卡）</string>
+    <string name="write_precheck_missing_block">源数据缺少区块 %1$d</string>
+    <string name="write_precheck_invalid_block">源数据区块 %1$d 长度异常</string>
+    <string name="write_precheck_read_failed">读取区块 %1$d 失败</string>
+    <string name="write_precheck_conflict">区块 %1$d 存在非目标数据，已阻止写入</string>
 </resources>

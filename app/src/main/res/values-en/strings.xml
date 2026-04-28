@@ -356,4 +356,87 @@
     <string name="dl_state_connecting">Connecting to server…</string>
     <string name="dl_state_importing">Importing tags…</string>
     <string name="dl_state_checking">Checking permission…</string>
+
+    <!-- Boost reminder dialog -->
+    <string name="boost_reminder_title">⏰ Don\'t let your boosts expire!</string>
+    <string name="boost_reminder_message">If you have spare boosts, use them where it matters —\n\nBoost the author\'s MakerWorld page @m0h31h31! Other models on the page are also welcome 🎉\n\n📌 Up to 5 models can be boosted per year, each up to 2 times.\n\nEvery boost is a genuine show of support for the author ❤️</string>
+    <string name="boost_action_go">Go Boost 🚀</string>
+
+    <!-- Common actions -->
+    <string name="action_close">Close</string>
+    <string name="action_continue">Continue</string>
+    <string name="action_got_it">Got It</string>
+
+    <!-- Debug dialog -->
+    <string name="debug_info_title">Debug Info</string>
+
+    <!-- Status messages -->
+    <string name="misc_status_formatting">Formatting...</string>
+    <string name="misc_status_testing">Testing...</string>
+    <string name="snapmaker_write_in_progress_status">Writing Snapmaker tag...</string>
+    <string name="copy_write_done_verifying">Write complete, verifying...</string>
+    <string name="copy_write_verify_success">Write and verify successful</string>
+
+    <!-- Config update dialog -->
+    <string name="config_update_title">Config Update</string>
+    <string name="config_update_result_title">Update Result</string>
+    <string name="config_update_success">Config updated successfully</string>
+
+    <!-- Error messages -->
+    <string name="error_save_sector_no_dir">Failed to save sector data: unable to create self directory</string>
+
+    <!-- Creality color picker -->
+    <string name="creality_label_hue">Hue</string>
+    <string name="creality_hex_input_label">#RRGGBB</string>
+
+    <!-- Snapmaker tag screen -->
+    <string name="snapmaker_search_placeholder">Search brand/type/date</string>
+    <string name="snapmaker_tag_count_format">Total %1$d, showing %2$d</string>
+    <string name="snapmaker_write_notice_1">Keep tag firmly on NFC area; do not move during write</string>
+    <string name="snapmaker_write_notice_2">Write may fail! Author not responsible for any consequences!</string>
+    <string name="snapmaker_selected_format">Selected: %1$s  %2$s</string>
+    <string name="snapmaker_btn_start_write">Start Write</string>
+    <string name="snapmaker_select_tag_first">Please select a tag first</string>
+    <string name="snapmaker_delete_confirm_message">Delete this tag record? (%1$s)</string>
+
+    <!-- Tag CUID fail dialog -->
+    <string name="tag_cuid_fail_title">CUID Rewrite Failed — Back Up Keys</string>
+    <string name="tag_cuid_original_uid_format">Original UID (before): %1$s</string>
+    <string name="tag_cuid_target_uid_format">Target UID (source): %1$s</string>
+    <string name="tag_cuid_uid_ambiguous">Current card UID may be either of the above</string>
+    <string name="tag_cuid_key_list_label">Key List (one per line)</string>
+    <string name="tag_cuid_key_copy_hint">Copy the keys above and use Mifare Classic Tool to manually authenticate each sector and format/repair the card.</string>
+    <string name="tag_cuid_copy_keys">Copy All Keys</string>
+    <string name="tag_continue_write">Continue Write</string>
+
+    <!-- Reader screen labels -->
+    <string name="reader_label_card_uid">Card UID</string>
+    <string name="reader_label_material_id">Material ID</string>
+    <string name="reader_label_color">Color</string>
+    <string name="reader_label_weight">Weight</string>
+    <string name="reader_label_serial">Serial</string>
+    <string name="reader_label_vendor_id">Vendor ID</string>
+    <string name="reader_label_mfdate">Mfg. Date</string>
+    <string name="reader_label_batch">Batch</string>
+    <string name="reader_label_print_temp">Print Temp</string>
+    <string name="reader_label_diameter">Diameter</string>
+    <string name="reader_label_brand">Brand</string>
+    <string name="reader_label_type">Type</string>
+    <string name="reader_label_color_count">Colors</string>
+    <string name="reader_label_bed_temp">Bed Temp</string>
+    <string name="reader_label_drying">Drying</string>
+    <string name="reader_label_official">Certified</string>
+    <string name="reader_creality_scan_hint">Tap a Creality tag to read</string>
+    <string name="reader_snapmaker_info_title">Snapmaker Filament Info</string>
+    <string name="reader_snapmaker_scan_hint">Tap a Snapmaker tag to read</string>
+    <string name="reader_anomaly_report_btn">Report\nAnomaly</string>
+
+    <!-- Write precheck messages -->
+    <string name="write_precheck_missing_trailer">Source data missing sector %1$d trailer</string>
+    <string name="write_precheck_invalid_trailer">Source data sector %1$d trailer length invalid</string>
+    <string name="write_precheck_auth_failed">Sector %1$d auth failed (neither blank nor target)</string>
+    <string name="write_precheck_missing_block">Source data missing block %1$d</string>
+    <string name="write_precheck_invalid_block">Source data block %1$d length invalid</string>
+    <string name="write_precheck_read_failed">Failed to read block %1$d</string>
+    <string name="write_precheck_conflict">Block %1$d has non-target data, write blocked</string>
 </resources>

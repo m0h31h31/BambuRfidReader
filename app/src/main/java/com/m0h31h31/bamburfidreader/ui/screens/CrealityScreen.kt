@@ -277,7 +277,7 @@ fun ColorPickerDialog(
 
                 // Hue slider
                 Text(
-                    text = "色相",
+                    text = stringResource(R.string.creality_label_hue),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -331,7 +331,7 @@ fun ColorPickerDialog(
                             } catch (_: Exception) {}
                         }
                     },
-                    label = { Text("#RRGGBB") },
+                    label = { Text(stringResource(R.string.creality_hex_input_label)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(

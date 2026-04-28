@@ -793,27 +793,27 @@ fun ReaderScreen(
                                         if (readerCrealityTagData != null) {
                                             val d = readerCrealityTagData
                                             if (d.uidHex.isNotBlank())
-                                                InfoLine(label = "卡片UID",  value = d.uidHex, style = MaterialTheme.typography.bodySmall, inline = true)
-                                            InfoLine(label = "耗材ID",   value = d.materialId, style = MaterialTheme.typography.bodySmall, inline = true)
-                                            InfoLine(label = "颜色",     value = "#${d.colorHex}", style = MaterialTheme.typography.bodySmall, inline = true)
-                                            InfoLine(label = "重量",     value = d.weight, style = MaterialTheme.typography.bodySmall, inline = true)
+                                                InfoLine(label = stringResource(R.string.reader_label_card_uid),  value = d.uidHex, style = MaterialTheme.typography.bodySmall, inline = true)
+                                            InfoLine(label = stringResource(R.string.reader_label_material_id),   value = d.materialId, style = MaterialTheme.typography.bodySmall, inline = true)
+                                            InfoLine(label = stringResource(R.string.reader_label_color),     value = "#${d.colorHex}", style = MaterialTheme.typography.bodySmall, inline = true)
+                                            InfoLine(label = stringResource(R.string.reader_label_weight),     value = d.weight, style = MaterialTheme.typography.bodySmall, inline = true)
                                             if (d.serial.isNotBlank())
-                                                InfoLine(label = "序列号", value = d.serial, style = MaterialTheme.typography.bodySmall, inline = true)
+                                                InfoLine(label = stringResource(R.string.reader_label_serial), value = d.serial, style = MaterialTheme.typography.bodySmall, inline = true)
                                             if (d.vendorId.isNotBlank())
-                                                InfoLine(label = "厂商ID", value = d.vendorId, style = MaterialTheme.typography.bodySmall, inline = true)
+                                                InfoLine(label = stringResource(R.string.reader_label_vendor_id), value = d.vendorId, style = MaterialTheme.typography.bodySmall, inline = true)
                                             if (d.mfDate.isNotBlank())
-                                                InfoLine(label = "生产日期", value = d.mfDate, style = MaterialTheme.typography.bodySmall, inline = true)
+                                                InfoLine(label = stringResource(R.string.reader_label_mfdate), value = d.mfDate, style = MaterialTheme.typography.bodySmall, inline = true)
                                             if (d.batch.isNotBlank())
-                                                InfoLine(label = "批次",   value = d.batch, style = MaterialTheme.typography.bodySmall, inline = true)
+                                                InfoLine(label = stringResource(R.string.reader_label_batch),   value = d.batch, style = MaterialTheme.typography.bodySmall, inline = true)
                                             readerCrealityMaterial?.let { mat ->
                                                 if (mat.minTemp > 0 || mat.maxTemp > 0)
-                                                    InfoLine(label = "打印温度", value = "${mat.minTemp}–${mat.maxTemp} °C", style = MaterialTheme.typography.bodySmall, inline = true)
+                                                    InfoLine(label = stringResource(R.string.reader_label_print_temp), value = "${mat.minTemp}–${mat.maxTemp} °C", style = MaterialTheme.typography.bodySmall, inline = true)
                                                 if (mat.diameter.isNotBlank())
-                                                    InfoLine(label = "线径", value = "${mat.diameter} mm", style = MaterialTheme.typography.bodySmall, inline = true)
+                                                    InfoLine(label = stringResource(R.string.reader_label_diameter), value = "${mat.diameter} mm", style = MaterialTheme.typography.bodySmall, inline = true)
                                             }
                                         } else {
                                             Text(
-                                                text = "请将创想三维耗材标签靠近读取",
+                                                text = stringResource(R.string.reader_creality_scan_hint),
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
@@ -825,31 +825,31 @@ fun ReaderScreen(
                                         SelectionContainer {
                                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                         Text(
-                                            text = "快造 耗材信息",
+                                            text = stringResource(R.string.reader_snapmaker_info_title),
                                             style = MaterialTheme.typography.titleSmall
                                         )
                                         if (readerSnapmakerTagData != null) {
                                             val d = readerSnapmakerTagData
-                                            InfoLine(label = "品牌",     value = d.vendor, style = MaterialTheme.typography.bodySmall, inline = true)
-                                            InfoLine(label = "类型",     value = "${d.mainType} ${d.subType}".trim(), style = MaterialTheme.typography.bodySmall, inline = true)
-                                            InfoLine(label = "颜色数",   value = "${d.colorCount}", style = MaterialTheme.typography.bodySmall, inline = true)
+                                            InfoLine(label = stringResource(R.string.reader_label_brand),     value = d.vendor, style = MaterialTheme.typography.bodySmall, inline = true)
+                                            InfoLine(label = stringResource(R.string.reader_label_type),     value = "${d.mainType} ${d.subType}".trim(), style = MaterialTheme.typography.bodySmall, inline = true)
+                                            InfoLine(label = stringResource(R.string.reader_label_color_count),   value = "${d.colorCount}", style = MaterialTheme.typography.bodySmall, inline = true)
                                             val colorHexStr = buildString {
                                                 val colors = listOf(d.rgb1, d.rgb2, d.rgb3, d.rgb4, d.rgb5)
                                                     .take(d.colorCount.coerceIn(1, 5))
                                                 append(colors.joinToString(" ") { "#%06X".format(it) })
                                             }
-                                            InfoLine(label = "颜色",     value = colorHexStr, style = MaterialTheme.typography.bodySmall, inline = true)
-                                            InfoLine(label = "线径",     value = if (d.diameter > 0) "${"%.2f".format(d.diameter / 100.0)} mm" else "-", style = MaterialTheme.typography.bodySmall, inline = true)
-                                            InfoLine(label = "重量",     value = if (d.weight > 0) "${d.weight} g" else "-", style = MaterialTheme.typography.bodySmall, inline = true)
-                                            InfoLine(label = "打印温度", value = if (d.hotendMinTemp > 0) "${d.hotendMinTemp}–${d.hotendMaxTemp} °C" else "-", style = MaterialTheme.typography.bodySmall, inline = true)
-                                            InfoLine(label = "热床温度", value = if (d.bedTemp > 0) "${d.bedTemp} °C" else "-", style = MaterialTheme.typography.bodySmall, inline = true)
-                                            InfoLine(label = "烘料",     value = if (d.dryingTemp > 0) "${d.dryingTemp} °C / ${d.dryingTime} h" else "-", style = MaterialTheme.typography.bodySmall, inline = true)
-                                            InfoLine(label = "生产日期", value = d.mfDate, style = MaterialTheme.typography.bodySmall, inline = true)
-                                            InfoLine(label = "官方认证", value = if (d.isOfficial) "✓" else "✗", style = MaterialTheme.typography.bodySmall, inline = true)
-                                            InfoLine(label = "卡片UID",  value = d.uidHex, style = MaterialTheme.typography.bodySmall, inline = true)
+                                            InfoLine(label = stringResource(R.string.reader_label_color),     value = colorHexStr, style = MaterialTheme.typography.bodySmall, inline = true)
+                                            InfoLine(label = stringResource(R.string.reader_label_diameter),     value = if (d.diameter > 0) "${"%.2f".format(d.diameter / 100.0)} mm" else "-", style = MaterialTheme.typography.bodySmall, inline = true)
+                                            InfoLine(label = stringResource(R.string.reader_label_weight),     value = if (d.weight > 0) "${d.weight} g" else "-", style = MaterialTheme.typography.bodySmall, inline = true)
+                                            InfoLine(label = stringResource(R.string.reader_label_print_temp), value = if (d.hotendMinTemp > 0) "${d.hotendMinTemp}–${d.hotendMaxTemp} °C" else "-", style = MaterialTheme.typography.bodySmall, inline = true)
+                                            InfoLine(label = stringResource(R.string.reader_label_bed_temp), value = if (d.bedTemp > 0) "${d.bedTemp} °C" else "-", style = MaterialTheme.typography.bodySmall, inline = true)
+                                            InfoLine(label = stringResource(R.string.reader_label_drying),     value = if (d.dryingTemp > 0) "${d.dryingTemp} °C / ${d.dryingTime} h" else "-", style = MaterialTheme.typography.bodySmall, inline = true)
+                                            InfoLine(label = stringResource(R.string.reader_label_mfdate), value = d.mfDate, style = MaterialTheme.typography.bodySmall, inline = true)
+                                            InfoLine(label = stringResource(R.string.reader_label_official), value = if (d.isOfficial) "✓" else "✗", style = MaterialTheme.typography.bodySmall, inline = true)
+                                            InfoLine(label = stringResource(R.string.reader_label_card_uid),  value = d.uidHex, style = MaterialTheme.typography.bodySmall, inline = true)
                                         } else {
                                             Text(
-                                                text = "请将快造耗材标签靠近读取",
+                                                text = stringResource(R.string.reader_snapmaker_scan_hint),
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
@@ -881,7 +881,7 @@ fun ReaderScreen(
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Text(
-                                                    text = "异常\n上报",
+                                                    text = stringResource(R.string.reader_anomaly_report_btn),
                                                     color = Color.White,
                                                     fontSize = 12.sp,
                                                     fontWeight = FontWeight.Bold,
@@ -1083,7 +1083,7 @@ private fun QuantityButtonGroup(
                         .padding(start = 6.dp, end = 28.dp)
                 )
                 Text(
-                    text = "g",
+                    text = stringResource(R.string.unit_grams),
                     style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier
                         .align(Alignment.CenterEnd)

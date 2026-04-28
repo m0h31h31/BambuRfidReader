@@ -14,9 +14,11 @@ private const val SECTOR_COUNT = 16
 
 // === 稳定性/速度参数（按需调整） ===
 private const val INTER_BLOCK_DELAY_MS = 0L    // 想更稳可设 5~10；追求极致速度保持 0
-private const val AUTH_RETRY_COUNT = 2          // 认证失败重试次数（总尝试=1+重试）
+private const val AUTH_RETRY_COUNT = 3          // 认证失败重试次数（总尝试=1+重试）
 private const val READ_BLOCK_RETRY_COUNT = 1    // 单块读失败重试次数
-private const val RECONNECT_DELAY_MS = 35L
+private const val RECONNECT_DELAY_MS = 50L
+// 初次 connect() 后的稳定等待：部分华为/荣耀设备 NFC 栈需要此间隔才能正常认证
+private const val POST_CONNECT_DELAY_MS = 30L
 
 // Bambu RFID 的密钥派生固定盐值。
 private val HKDF_SALT = byteArrayOf(
@@ -28,10 +30,10 @@ private val HKDF_SALT = byteArrayOf(
 
 // 派生 KeyA / KeyB 时使用的 info 参数。
 private val INFO_A = "RFID-A\u0000".toByteArray(Charsets.US_ASCII)
-private val INFO_B = "RFID-B\u0000".toByteArray(Charsets.US_ASCII)
+private val INFO_B = "RFID-A\u0000".toByteArray(Charsets.US_ASCII)
 
 /**
- * 原始读卡结果（仅包含“读取层”的数据，不做业务解析）。
+ * 原始读卡结果（仅包含"读取层"的数据，不做业务解析）。
  */
 data class RawTagReadData(
     val uidHex: String,
@@ -112,6 +114,8 @@ object NfcTagReader {
         val keyA1Hex = sectorKeys.getOrNull(1)?.first?.toHex().orEmpty()
         val keyB1Hex = sectorKeys.getOrNull(1)?.second?.toHex().orEmpty()
 
+        appendLog("D", "UID: $uidHex  K0A: $keyA0Hex  K0B: $keyB0Hex")
+
         // 3) 仅处理 MifareClassic
         val mifare = MifareClassic.get(tag) ?: return RawTagReadResult.Failure(
             reason = RawTagReadFailureReason.MIFARE_UNSUPPORTED,
@@ -124,8 +128,10 @@ object NfcTagReader {
         )
 
         return try {
-            // 4) connect 一次
+            // 4) connect 一次，之后等待 RF 链路稳定（兼容华为等需要额外初始化时间的 NFC 实现）
             mifare.connect()
+            appendLog("D", "MIFARE connect OK, type=${mifare.type} sectorCount=${mifare.sectorCount}")
+            if (POST_CONNECT_DELAY_MS > 0) Thread.sleep(POST_CONNECT_DELAY_MS)
 
             // rawBlocks 用 mifare.blockCount 动态生成（兼容 1K/4K）
             val rawBlocks = MutableList<ByteArray?>(mifare.blockCount) { null }
@@ -135,16 +141,17 @@ object NfcTagReader {
             val readTrailer = true
 
             fun readAndFill(sector: Int, collectError: Boolean) {
-                val keyA = sectorKeys.getOrNull(sector)?.first
-                val keyB = sectorKeys.getOrNull(sector)?.second
+                val keysA: List<ByteArray?> = listOfNotNull(sectorKeys.getOrNull(sector)?.first)
+                val keysB: List<ByteArray?> = listOfNotNull(sectorKeys.getOrNull(sector)?.second)
 
                 val result = readSectorOptimized(
                     mifare = mifare,
                     sectorIndex = sector,
-                    keyA = keyA,
-                    keyB = keyB,
+                    keysA = keysA,
+                    keysB = keysB,
                     readTrailer = readTrailer,
-                    logger = logger
+                    logger = logger,
+                    appendLog = appendLog
                 )
 
                 val rawStart = sector * 4
@@ -213,30 +220,32 @@ object NfcTagReader {
 }
 
 /**
- * 读取单个扇区（优化版）：
- * - 认证一次；
- * - 默认读取 3 个数据块（不读 trailer）；
- * - 读失败会返回明确 blockIndex；
- * - 可选每块间隔（默认 0ms）。
+ * 读取单个扇区：
+ * - 支持多套候选密钥（主密钥 + 翻转UID备用密钥）；
+ * - 认证失败后详细记录原因（异常类型/消息）；
+ * - 每次重试前强制重连 RF，兼容华为等状态机敏感设备。
  */
 private fun readSectorOptimized(
     mifare: MifareClassic,
     sectorIndex: Int,
-    keyA: ByteArray?,
-    keyB: ByteArray?,
+    keysA: List<ByteArray?>,
+    keysB: List<ByteArray?>,
     readTrailer: Boolean,
-    logger: (String) -> Unit
+    logger: (String) -> Unit,
+    appendLog: (String, String) -> Unit
 ): SectorReadResult {
 
     val authenticated = authenticateSectorWithRetry(
         mifare = mifare,
         sectorIndex = sectorIndex,
-        keyA = keyA,
-        keyB = keyB
+        keysA = keysA,
+        keysB = keysB,
+        logger = logger,
+        appendLog = appendLog
     )
 
     if (!authenticated) {
-        return SectorReadResult(emptyList(), "扇区 $sectorIndex 认证失败")
+        return SectorReadResult(emptyList(), "扇区 $sectorIndex 认证失败（已重试 $AUTH_RETRY_COUNT 次）")
     }
 
     val startBlock = mifare.sectorToBlock(sectorIndex)
@@ -261,17 +270,17 @@ private fun readSectorOptimized(
                 break
             } catch (e: Exception) {
                 lastError = e
-                // 读失败后按 MCReader 思路重认证一次再重试。
-                reconnectMifareClassic(mifare)
+                appendLog("D", "block=$absBlock 读取异常 attempt=$attempt: ${e.javaClass.simpleName}: ${e.message}")
+                reconnectMifareClassic(mifare, appendLog)
                 val reAuthOk = authenticateSectorWithRetry(
                     mifare = mifare,
                     sectorIndex = sectorIndex,
-                    keyA = keyA,
-                    keyB = keyB
+                    keysA = keysA,
+                    keysB = keysB,
+                    logger = logger,
+                    appendLog = appendLog
                 )
-                if (!reAuthOk) {
-                    break
-                }
+                if (!reAuthOk) break
             }
         }
 
@@ -287,36 +296,70 @@ private fun readSectorOptimized(
     return SectorReadResult(blocks, "")
 }
 
+/**
+ * 带详细日志的认证重试：
+ * - 支持多套候选密钥（依次尝试 KeyA/KeyB）；
+ * - 无论认证返回 false 还是抛出异常，均重连后再试；
+ * - 记录每次失败的具体原因（false 返回 vs 异常类型）。
+ */
 private fun authenticateSectorWithRetry(
     mifare: MifareClassic,
     sectorIndex: Int,
-    keyA: ByteArray?,
-    keyB: ByteArray?
+    keysA: List<ByteArray?>,
+    keysB: List<ByteArray?>,
+    logger: (String) -> Unit,
+    appendLog: (String, String) -> Unit
 ): Boolean {
     for (attempt in 0..AUTH_RETRY_COUNT) {
-        try {
-            val okA = keyA != null && mifare.authenticateSectorWithKeyA(sectorIndex, keyA)
-            if (okA) return true
-            val okB = keyB != null && mifare.authenticateSectorWithKeyB(sectorIndex, keyB)
-            if (okB) return true
-        } catch (_: Exception) {
-            reconnectMifareClassic(mifare)
+        // 依次尝试每一套候选密钥
+        for (keyIdx in 0 until maxOf(keysA.size, keysB.size)) {
+            val kA = keysA.getOrNull(keyIdx)
+            val kB = keysB.getOrNull(keyIdx)
+            val label = if (keyIdx == 0) "主" else "备用(翻转UID)"
+
+            try {
+                val okA = kA != null && mifare.authenticateSectorWithKeyA(sectorIndex, kA)
+                if (okA) {
+                    if (attempt > 0 || keyIdx > 0) {
+                        appendLog("I", "扇区$sectorIndex 认证成功 attempt=$attempt keySet=$label KeyA")
+                    }
+                    return true
+                }
+                val okB = kB != null && mifare.authenticateSectorWithKeyB(sectorIndex, kB)
+                if (okB) {
+                    if (attempt > 0 || keyIdx > 0) {
+                        appendLog("I", "扇区$sectorIndex 认证成功 attempt=$attempt keySet=$label KeyB")
+                    }
+                    return true
+                }
+                // 两个 key 都返回 false，不是异常
+                appendLog("D", "扇区$sectorIndex 认证 false attempt=$attempt keySet=$label (KeyA=${kA != null} KeyB=${kB != null})")
+            } catch (e: Exception) {
+                appendLog("D", "扇区$sectorIndex 认证异常 attempt=$attempt keySet=$label: ${e.javaClass.simpleName}: ${e.message}")
+            }
+        }
+
+        // 本轮所有密钥均失败，重连后再试
+        if (attempt < AUTH_RETRY_COUNT) {
+            appendLog("D", "扇区$sectorIndex 认证失败，第${attempt + 1}次重连...")
+            reconnectMifareClassic(mifare, appendLog)
         }
     }
     return false
 }
 
-private fun reconnectMifareClassic(mifare: MifareClassic): Boolean {
+private fun reconnectMifareClassic(
+    mifare: MifareClassic,
+    appendLog: (String, String) -> Unit = { _, _ -> }
+): Boolean {
     return try {
-        try {
-            mifare.close()
-        } catch (_: Exception) {
-        }
+        try { mifare.close() } catch (_: Exception) {}
         Thread.sleep(RECONNECT_DELAY_MS)
         mifare.connect()
         Thread.sleep(RECONNECT_DELAY_MS)
         true
-    } catch (_: Exception) {
+    } catch (e: Exception) {
+        appendLog("W", "reconnect 失败: ${e.javaClass.simpleName}: ${e.message}")
         false
     }
 }

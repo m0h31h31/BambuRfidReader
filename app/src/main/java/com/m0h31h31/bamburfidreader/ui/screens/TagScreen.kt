@@ -473,7 +473,7 @@ private fun UidSelectionDialog(
                                 onSelect(anomalyPendingTarget)
                                 pendingAnomalyItem = null
                                 onDismiss()
-                            }) { Text("继续") }
+                            }) { Text(stringResource(R.string.action_continue)) }
                         },
                         dismissButton = {
                             TextButton(onClick = { pendingAnomalyItem = null }) {
@@ -674,7 +674,7 @@ private fun CModifyRecoveryDialog(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "CUID 改写失败 — 请备份秘钥",
+                    text = stringResource(R.string.tag_cuid_fail_title),
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.error,
                     fontWeight = FontWeight.Bold
@@ -683,18 +683,18 @@ private fun CModifyRecoveryDialog(
                 // UID信息
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
-                        text = "原UID（改写前）：${info.originalUid}",
+                        text = stringResource(R.string.tag_cuid_original_uid_format, info.originalUid),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "目标UID（源数据）：${info.targetUid}",
+                        text = stringResource(R.string.tag_cuid_target_uid_format, info.targetUid),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
                     )
                     Text(
-                        text = "卡片现UID可能是以上两者之一",
+                        text = stringResource(R.string.tag_cuid_uid_ambiguous),
                         fontSize = 10.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -703,7 +703,7 @@ private fun CModifyRecoveryDialog(
                 // 密钥区（固定高度可滚动）
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
-                        text = "密钥列表（每行一个）",
+                        text = stringResource(R.string.tag_cuid_key_list_label),
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -731,7 +731,7 @@ private fun CModifyRecoveryDialog(
 
                 // 提示文字
                 Text(
-                    text = "请复制上方密钥，使用 Mifare Classic Tool 手动尝试认证各扇区并格式化修复卡片。",
+                    text = stringResource(R.string.tag_cuid_key_copy_hint),
                     fontSize = 10.sp,
                     lineHeight = 13.sp,
                     color = MaterialTheme.colorScheme.error
@@ -743,7 +743,7 @@ private fun CModifyRecoveryDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     NeuButton(
-                        text = "一键复制秘钥",
+                        text = stringResource(R.string.tag_cuid_copy_keys),
                         onClick = {
                             val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             cm.setPrimaryClip(ClipData.newPlainText("cuid_keys", copyText))
@@ -751,7 +751,7 @@ private fun CModifyRecoveryDialog(
                         modifier = Modifier.weight(1f)
                     )
                     NeuButton(
-                        text = "关闭",
+                        text = stringResource(R.string.action_close),
                         onClick = onDismiss,
                         modifier = Modifier.weight(1f)
                     )
@@ -1128,7 +1128,7 @@ fun TagScreen(
                         TextButton(onClick = {
                             onStartWrite(anomalyWriteTarget)
                             pendingAnomalyWriteItem = null
-                        }) { Text("继续写入") }
+                        }) { Text(stringResource(R.string.tag_continue_write)) }
                     },
                     dismissButton = {
                         TextButton(onClick = { pendingAnomalyWriteItem = null }) {

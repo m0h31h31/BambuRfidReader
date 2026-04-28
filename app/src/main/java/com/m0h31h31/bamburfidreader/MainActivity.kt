@@ -335,13 +335,13 @@ private fun BoostReminderDialog(
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Text(
-                    text = "⏰ 别让助力券过期！",
+                    text = stringResource(R.string.boost_reminder_title),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
                 )
                 Text(
-                    text = "如果你有多余的助力券，不妨把它用在有意义的地方——\n\n给作者的 MakerWorld 主页 @m0h31h31 助力！主页上的其他模型同样欢迎助力 🎉\n\n📌 每年可助力 5 个模型，每个模型最多助力 2 次。\n\n你的每一次助力，都是对作者坚持创作最真诚的支持 ❤️",
+                    text = stringResource(R.string.boost_reminder_message),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -350,10 +350,10 @@ private fun BoostReminderDialog(
                     horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)
                 ) {
                     OutlinedButton(onClick = onDismiss) {
-                        Text("知道了")
+                        Text(stringResource(R.string.notice_guide_skip))
                     }
                     Button(onClick = onBoost) {
-                        Text("去助力 🚀")
+                        Text(stringResource(R.string.boost_action_go))
                     }
                 }
             }
@@ -838,7 +838,7 @@ class MainActivity : ComponentActivity() {
             debugInfoDialog = android.app.AlertDialog.Builder(this)
                 .setTitle(title)
                 .setMessage("")
-                .setPositiveButton("关闭", null)
+                .setPositiveButton(getString(R.string.action_close), null)
                 .create().also { it.show() }
         }
     }
@@ -856,9 +856,9 @@ class MainActivity : ComponentActivity() {
             val dialog = debugInfoDialog
             if (dialog == null || !dialog.isShowing) {
                 debugInfoDialog = android.app.AlertDialog.Builder(this)
-                    .setTitle("调试信息")
+                    .setTitle(getString(R.string.debug_info_title))
                     .setMessage(text)
-                    .setPositiveButton("关闭", null)
+                    .setPositiveButton(getString(R.string.action_close), null)
                     .create().also { it.show() }
             } else {
                 dialog.setMessage(text)
@@ -883,11 +883,11 @@ class MainActivity : ComponentActivity() {
                 } else if (pendingNdefWriteRequest != null) {
                     writeToolStatusMessage = uiString(R.string.copy_ndef_in_progress)
                 } else if (pendingClearFuid) {
-                    miscStatusMessage = "正在格式化"
+                    miscStatusMessage = uiString(R.string.misc_status_formatting)
                 } else if (pendingCuidTest) {
-                    miscStatusMessage = "正在检测..."
+                    miscStatusMessage = uiString(R.string.misc_status_testing)
                 } else if (pendingSnapmakerWriteItem != null) {
-                    snapmakerWriteStatusMessage = "正在写入快造标签..."
+                    snapmakerWriteStatusMessage = uiString(R.string.snapmaker_write_in_progress_status)
                 } else if (pendingCrealityWrite != null) {
                     crealityStatusMessage = uiString(R.string.creality_write_in_progress)
                 }
@@ -903,7 +903,7 @@ class MainActivity : ComponentActivity() {
                 }
                 if (writeResult.contains("成功") || writeResult.contains("success", ignoreCase = true)) {
                     // 写入成功后自动校验（无需重复贴卡）
-                    runOnUiThread { writeStatusMessage = "写入完成，正在自动校验..." }
+                    runOnUiThread { writeStatusMessage = uiString(R.string.copy_write_done_verifying) }
                     val verifyResult = if (targetItem != null) {
                         verifyTagAgainstDump(tag, targetItem)
                     } else "校验失败：任务为空"
@@ -920,7 +920,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                             pendingWriteItem = null
-                            writeStatusMessage = "写入并校验成功"
+                            writeStatusMessage = uiString(R.string.copy_write_verify_success)
                             // 上报 UID 复制事件到后端，并刷新显示的复制人数
                             if (targetItem != null) {
                                 val copiedUid = targetItem.sourceUid
@@ -1194,18 +1194,18 @@ class MainActivity : ComponentActivity() {
             ) { message, updateAction ->
                 runOnUiThread {
                     val builder = android.app.AlertDialog.Builder(this@MainActivity)
-                        .setTitle("配置更新")
+                        .setTitle(getString(R.string.config_update_title))
                         .setMessage(message)
 
                     if (message == "版本更新请到原地址下载") {
-                        builder.setPositiveButton("我知道了", null)
+                        builder.setPositiveButton(getString(R.string.action_got_it), null)
                     } else {
-                        builder.setPositiveButton("我知道了") { _, _ ->
+                        builder.setPositiveButton(getString(R.string.action_got_it)) { _, _ ->
                             updateAction()
                             android.app.AlertDialog.Builder(this@MainActivity)
-                                .setTitle("更新结果")
-                                .setMessage("配置更新成功")
-                                .setPositiveButton("我知道了", null)
+                                .setTitle(getString(R.string.config_update_result_title))
+                                .setMessage(getString(R.string.config_update_success))
+                                .setPositiveButton(getString(R.string.action_got_it), null)
                                 .show()
                         }
                     }
@@ -2667,7 +2667,7 @@ class MainActivity : ComponentActivity() {
         try {
             val rfidFilesDir = resolveSelfRfidDirectory()
             if (rfidFilesDir == null) {
-                val message = "保存扇区数据失败：无法创建 self 目录"
+                val message = getString(R.string.error_save_sector_no_dir)
                 logDebug(message)
                 LogCollector.append(this, "E", message)
                 return
@@ -4450,12 +4450,12 @@ class MainActivity : ComponentActivity() {
             val trailerData = sourceBlocks.getOrNull(trailerIndex)
                 ?: return WritePrecheckResult(
                     action = WritePrecheckAction.BLOCKED_CONFLICT,
-                    message = "源数据缺少扇区 $sector trailer"
+                    message = getString(R.string.write_precheck_missing_trailer, sector)
                 )
             if (trailerData.size != 16) {
                 return WritePrecheckResult(
                     action = WritePrecheckAction.BLOCKED_CONFLICT,
-                    message = "源数据扇区 $sector trailer 长度异常"
+                    message = getString(R.string.write_precheck_invalid_trailer, sector)
                 )
             }
             val sourceKeyA = trailerData.copyOfRange(0, 6)
@@ -4480,7 +4480,7 @@ class MainActivity : ComponentActivity() {
             if (!authBySource && !authByFF) {
                 return WritePrecheckResult(
                     action = WritePrecheckAction.BLOCKED_UNREADABLE,
-                    message = "扇区 $sector 无法认证（既非空白卡也非目标卡）"
+                    message = getString(R.string.write_precheck_auth_failed, sector)
                 )
             }
 
@@ -4490,18 +4490,18 @@ class MainActivity : ComponentActivity() {
                 val expected = sourceBlocks.getOrNull(blockIndex)
                     ?: return WritePrecheckResult(
                         action = WritePrecheckAction.BLOCKED_CONFLICT,
-                        message = "源数据缺少区块 $blockIndex"
+                        message = getString(R.string.write_precheck_missing_block, blockIndex)
                     )
                 if (expected.size != 16) {
                     return WritePrecheckResult(
                         action = WritePrecheckAction.BLOCKED_CONFLICT,
-                        message = "源数据区块 $blockIndex 长度异常"
+                        message = getString(R.string.write_precheck_invalid_block, blockIndex)
                     )
                 }
                 val actual = readBlockWithRetry(mifare, blockIndex)
                     ?: return WritePrecheckResult(
                         action = WritePrecheckAction.BLOCKED_UNREADABLE,
-                        message = "读取区块 $blockIndex 失败"
+                        message = getString(R.string.write_precheck_read_failed, blockIndex)
                     )
 
                 val matched = isBlockEquivalentForResume(blockIndex, expected, actual)
@@ -4526,7 +4526,7 @@ class MainActivity : ComponentActivity() {
                 }
                 return WritePrecheckResult(
                     action = WritePrecheckAction.BLOCKED_CONFLICT,
-                    message = "区块 $blockIndex 存在非目标数据，已阻止写入"
+                    message = getString(R.string.write_precheck_conflict, blockIndex)
                 )
             }
             if (resumePoint != null) {

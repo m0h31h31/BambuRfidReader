@@ -188,7 +188,7 @@ fun SnapmakerTagScreen(
             AppSearchBar(
                 value = query,
                 onValueChange = { query = it },
-                placeholder = "搜索品牌/类型/日期",
+                placeholder = stringResource(R.string.snapmaker_search_placeholder),
                 modifier = Modifier.fillMaxWidth()
             )
 
@@ -196,7 +196,7 @@ fun SnapmakerTagScreen(
                 Text(text = hintMessage, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Text(
-                text = "共 ${items.size} 个标签，显示 ${filteredItems.size} 个",
+                text = stringResource(R.string.snapmaker_tag_count_format, items.size, filteredItems.size),
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -247,7 +247,7 @@ fun SnapmakerTagScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 AppCircularProgressIndicator(modifier = Modifier.width(18.dp).height(18.dp))
-                                Text(text = "加载中...", fontSize = 13.sp)
+                                Text(text = stringResource(R.string.data_loading), fontSize = 13.sp)
                             }
                         }
                     }
@@ -271,7 +271,7 @@ fun SnapmakerTagScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            "写入注意事项",
+                            stringResource(R.string.tag_write_notice_title),
                             color = MaterialTheme.colorScheme.error,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
@@ -287,8 +287,8 @@ fun SnapmakerTagScreen(
                             modifier = Modifier.padding(top = 4.dp),
                             verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
-                            Text("标签需要紧贴手机NFC区域,写入过程中不要移动", fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Bold)
-                            Text("写入可能失败!作者不对任何后果负责!", fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                            Text(stringResource(R.string.snapmaker_write_notice_1), fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.snapmaker_write_notice_2), fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
                         }
                     }
                 }
@@ -296,7 +296,7 @@ fun SnapmakerTagScreen(
 
             if (selectedItem != null) {
                 Text(
-                    text = "已选择：${snapFullTypeName(selectedItem.mainType, selectedItem.subType)}  ${selectedItem.uid}",
+                    text = stringResource(R.string.snapmaker_selected_format, snapFullTypeName(selectedItem.mainType, selectedItem.subType), selectedItem.uid),
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -309,14 +309,14 @@ fun SnapmakerTagScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 NeuButton(
-                    text = if (writeInProgress) "取消写入" else "开始写入",
+                    text = if (writeInProgress) stringResource(R.string.creality_btn_cancel_write) else stringResource(R.string.snapmaker_btn_start_write),
                     onClick = {
                         if (writeInProgress) {
                             onCancelWrite()
                         } else {
                             val item = selectedItem
                             if (item != null) onStartWrite(item)
-                            else hintMessage = "请先选择一个标签"
+                            else hintMessage = context.getString(R.string.snapmaker_select_tag_first)
                         }
                     },
                     enabled = writeInProgress || selectedItem != null,
@@ -347,8 +347,8 @@ fun SnapmakerTagScreen(
         if (deleteTarget != null) {
             AlertDialog(
                 onDismissRequest = { pendingDeleteItem = null },
-                title = { Text("删除确认") },
-                text = { Text("确定删除该标签记录？(${deleteTarget.uid})") },
+                title = { Text(stringResource(R.string.tag_delete_confirm_title)) },
+                text = { Text(stringResource(R.string.snapmaker_delete_confirm_message, deleteTarget.uid)) },
                 confirmButton = {
                     TextButton(onClick = {
                         val message = onDelete(deleteTarget)
